@@ -1,20 +1,24 @@
-# app_fast.py
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import camelot
-from datetime import datetime
-from io import BytesIO
+import plotly.graph_objects as go
+from fpdf import FPDF
+import easyocr
+from PIL import Image
+import io
 import json
+from datetime import datetime
 
+# ------------------ USERS ------------------
 USERS_FILE = "users.json"
 
-# ---------- Users ----------
 def load_users():
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
+    try:
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {}
 
 def save_users(users):
     with open(USERS_FILE, "w") as f:
@@ -22,138 +26,166 @@ def save_users(users):
 
 users = load_users()
 
-# ---------- Login ----------
+# ------------------ LOGIN ------------------
 def login():
     st.title("LabT - Login")
+    st.info("Sélectionnez votre utilisateur et entrez le mot de passe.")
     user = st.selectbox("Utilisateur", list(users.keys()))
-    password = st.text_input("Mot de passe", type="password")
+    pwd = st.text_input("Mot de passe", type="password")
     if st.button("Se connecter"):
-        if password == users[user]:
-            st.session_state["user"] = user
-            st.session_state["logged_in"] = True
+        if user in users and users[user] == pwd:
+            st.session_state['user'] = user
             st.success(f"Connecté en tant que {user}")
+            st.session_state['menu'] = "main"
         else:
-            st.error("Mot de passe incorrect")
+            st.error("Utilisateur ou mot de passe incorrect")
 
+# ------------------ LOGOUT ------------------
 def logout():
-    if st.button("Déconnecter"):
-        st.session_state.clear()
-        st.experimental_rerun()
+    if st.button("Déconnexion"):
+        st.session_state['user'] = None
+        st.session_state['menu'] = "login"
 
-# ---------- S/N Calculation ----------
-def sn_from_csv(df, start, end):
-    df_zone = df[(df["Time"] >= start) & (df["Time"] <= end)]
-    y = df_zone["Signal"].values
-    sn = np.max(y)/np.std(y)
-    lod = 3*np.std(y)
-    loq = 10*np.std(y)
-    return sn, lod, loq
+# ------------------ OCR ------------------
+reader = easyocr.Reader(['en'])
 
-def sn_from_png(uploaded_file):
-    img = mpimg.imread(uploaded_file)
-    st.image(img, caption="Chromatogramme chargé")
-    st.info("Extraction graphique approximative non implémentée pour PNG. Convertir en CSV pour calcul réel.")
-    return None, None, None
-
-def sn_from_pdf(uploaded_file):
-    tables = camelot.read_pdf(uploaded_file, pages='all')
-    if len(tables) == 0:
-        st.error("Aucune table détectée dans le PDF")
-        return None, None, None
-    df = tables[0].df
-    df = df.apply(pd.to_numeric, errors='coerce')
-    start, end = df.iloc[0,0], df.iloc[-1,0]
-    return sn_from_csv(df, start, end)
-
-def sn_page():
-    st.header("Calcul S/N, LOD, LOQ")
-    uploaded_file = st.file_uploader("Charger CSV, PNG ou PDF", type=["csv","png","pdf"])
-    if uploaded_file:
-        if uploaded_file.name.endswith(".csv"):
-            df = pd.read_csv(uploaded_file)
-            start = st.number_input("Début zone (Time)", value=float(df["Time"].min()))
-            end = st.number_input("Fin zone (Time)", value=float(df["Time"].max()))
-            if st.button("Calculer S/N"):
-                sn, lod, loq = sn_from_csv(df, start, end)
-                st.success(f"S/N = {sn:.2f}, LOD = {lod:.2f}, LOQ = {loq:.2f}")
-        elif uploaded_file.name.endswith(".png"):
-            if st.button("Calculer S/N"):
-                sn_from_png(uploaded_file)
-        else:  # PDF
-            if st.button("Calculer S/N"):
-                sn_from_pdf(uploaded_file)
-
-# ---------- Linéarité ----------
-def linearity_page():
-    st.header("Courbe de Linéarité")
-    method = st.radio("Méthode", ["Manuelle","CSV"])
-    if method == "Manuelle":
-        c = st.text_input("Concentrations (séparées par virgule)", "1,2,3")
-        r = st.text_input("Réponses (aires ou absorbances, séparées par virgule)", "10,20,30")
+def extract_data_from_image(uploaded_file):
+    img = Image.open(uploaded_file)
+    results = reader.readtext(np.array(img), detail=0)
+    data = []
+    for line in results:
         try:
-            c = [float(x.strip()) for x in c.split(",")]
-            r = [float(x.strip()) for x in r.split(",")]
-            df = pd.DataFrame({"Concentration": c, "Réponse": r})
+            # extraire les nombres séparés par espaces ou virgules
+            for val in line.replace(',', ' ').split():
+                data.append(float(val))
         except:
-            st.error("Erreur dans la conversion des valeurs")
-            return
+            continue
+    if len(data) % 2 != 0:
+        data = data[:-1]  # supprimer le dernier si impair
+    df = pd.DataFrame({"Time": data[::2], "Signal": data[1::2]})
+    return df
+
+# ------------------ CHROMATOGRAM ------------------
+def load_chromatogram(uploaded_file):
+    if uploaded_file.name.lower().endswith(".csv"):
+        df = pd.read_csv(uploaded_file, sep=None, engine='python')
+        if df.shape[1] < 2:
+            st.error("CSV invalide, besoin d'au moins 2 colonnes")
+            return None
+        df.columns = ["Time", "Signal"]
     else:
-        uploaded_file = st.file_uploader("Charger CSV", type=["csv"])
-        if uploaded_file:
+        df = extract_data_from_image(uploaded_file)
+    return df
+
+def plot_chromatogram(df):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["Time"], y=df["Signal"], mode="lines", name="Signal"))
+    st.plotly_chart(fig, use_container_width=True)
+
+# ------------------ S/N, LOD, LOQ ------------------
+def calculate_sn(df, start, end):
+    zone = df[(df["Time"] >= start) & (df["Time"] <= end)]
+    if zone.empty:
+        return None, None, None, None
+    y = zone["Signal"].values
+    sn = np.max(y)/np.std(y)
+    lod = 3*sn
+    loq = 10*sn
+    return sn, lod, loq, zone
+
+# ------------------ LINEARITY ------------------
+def linearity_page():
+    st.subheader("Courbe de linéarité")
+    method = st.radio("Méthode de saisie", ["Entrée manuelle", "Importer CSV"])
+    
+    conc_unit = st.selectbox("Unité concentration", ["µg/mL", "mg/mL"])
+    
+    if method == "Entrée manuelle":
+        c_input = st.text_area("Concentrations séparées par virgule")
+        r_input = st.text_area("Réponses (aires ou absorbances) séparées par virgule")
+        if st.button("Tracer la courbe"):
+            try:
+                c = np.array([float(x) for x in c_input.split(",")])
+                r = np.array([float(x) for x in r_input.split(",")])
+                if len(c) != len(r):
+                    st.error("Concentration et réponse doivent avoir le même nombre de points")
+                    return
+                df = pd.DataFrame({"Concentration": c, "Réponse": r})
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df["Concentration"], y=df["Réponse"], mode="markers+lines"))
+                st.plotly_chart(fig, use_container_width=True)
+                # régression linéaire
+                m, b = np.polyfit(df["Concentration"], df["Réponse"], 1)
+                r2 = np.corrcoef(df["Concentration"], df["Réponse"])[0,1]**2
+                st.write(f"Équation: y = {m:.4f}x + {b:.4f}, R² = {r2:.4f}")
+                
+                # concentration inconnue
+                unknown = st.number_input("Entrer le signal inconnu", value=0.0)
+                if unknown > 0:
+                    conc_calc = (unknown - b)/m
+                    st.success(f"Concentration inconnue ≈ {conc_calc:.4f} {conc_unit}")
+                
+                # Export PDF
+                if st.button("Exporter rapport PDF"):
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", "B", 16)
+                    pdf.cell(0, 10, "Rapport Linéarité LabT", 0, 1, "C")
+                    pdf.set_font("Arial", "", 12)
+                    pdf.cell(0, 10, f"Utilisateur: {st.session_state['user']}", 0, 1)
+                    pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 0, 1)
+                    pdf.cell(0, 10, f"Équation: y = {m:.4f}x + {b:.4f}, R² = {r2:.4f}", 0, 1)
+                    pdf.cell(0, 10, f"Concentration inconnue ≈ {conc_calc:.4f} {conc_unit}", 0, 1)
+                    pdf.output("rapport_linearite.pdf")
+                    st.success("PDF généré: rapport_linearite.pdf")
+            except Exception as e:
+                st.error(f"Erreur: {e}")
+    else:
+        uploaded_file = st.file_uploader("Choisir un fichier CSV", type=["csv"])
+        if uploaded_file is not None:
             df = pd.read_csv(uploaded_file)
-        else:
-            return
+            if df.shape[1] < 2:
+                st.error("CSV invalide")
+                return
+            df.columns = ["Concentration","Réponse"]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["Concentration"], y=df["Réponse"], mode="markers+lines"))
+            st.plotly_chart(fig, use_container_width=True)
+            m, b = np.polyfit(df["Concentration"], df["Réponse"],1)
+            r2 = np.corrcoef(df["Concentration"], df["Réponse"])[0,1]**2
+            st.write(f"Équation: y = {m:.4f}x + {b:.4f}, R² = {r2:.4f}")
 
-    fig, ax = plt.subplots()
-    ax.plot(df["Concentration"], df["Réponse"], marker='o')
-    ax.set_xlabel("Concentration (µg/mL)")
-    ax.set_ylabel("Réponse")
-    st.pyplot(fig)
-
-    coeff = np.polyfit(df["Concentration"], df["Réponse"], 1)
-    r2 = np.corrcoef(df["Concentration"], df["Réponse"])[0,1]**2
-    st.info(f"R² = {r2:.4f}")
-
-    unknown_signal = st.number_input("Signal inconnu")
-    if unknown_signal:
-        conc_unknown = (unknown_signal - coeff[1])/coeff[0]
-        st.success(f"Concentration inconnue ≈ {conc_unknown:.4f} µg/mL")
-
-# ---------- Admin ----------
-def admin_page():
-    st.header("Admin - Gestion des utilisateurs")
-    new_user = st.text_input("Nom")
-    new_pass = st.text_input("Mot de passe", type="password")
-    if st.button("Ajouter"):
-        if new_user and new_pass:
-            users[new_user] = new_pass
-            save_users(users)
-            st.success(f"Utilisateur {new_user} ajouté")
-    del_user = st.selectbox("Supprimer utilisateur", list(users.keys()))
-    if st.button("Supprimer"):
-        if del_user in users:
-            users.pop(del_user)
-            save_users(users)
-            st.success(f"Utilisateur {del_user} supprimé")
-
-# ---------- Main ----------
+# ------------------ MAIN ------------------
 def main():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-    if not st.session_state["logged_in"]:
-        login()
-    else:
-        st.sidebar.markdown(f"Connecté en tant que: {st.session_state.get('user')}")
-        logout()
-        user = st.session_state.get("user")
-        if user=="admin":
-            admin_page()
-        else:
-            choice = st.radio("Choisir une action", ["S/N","Linéarité"])
-            if choice=="S/N":
-                sn_page()
-            else:
-                linearity_page()
+    if 'menu' not in st.session_state:
+        st.session_state['menu'] = "login"
+    if 'user' not in st.session_state:
+        st.session_state['user'] = None
 
-if __name__=="__main__":
+    if st.session_state['menu'] == "login":
+        login()
+    elif st.session_state['menu'] == "main":
+        st.title("LabT - Page principale")
+        st.write(f"Connecté en tant que: {st.session_state['user']}")
+        logout()
+        
+        action = st.selectbox("Choisir l'action", ["S/N USP", "Linéarité"])
+        if action == "S/N USP":
+            uploaded_file = st.file_uploader("Charger chromatogramme CSV, PNG ou JPG", type=["csv","png","jpg"])
+            if uploaded_file is not None:
+                df = load_chromatogram(uploaded_file)
+                if df is not None:
+                    plot_chromatogram(df)
+                    start = st.number_input("Start Time", value=float(df["Time"].min()))
+                    end = st.number_input("End Time", value=float(df["Time"].max()))
+                    if st.button("Calculer S/N"):
+                        sn, lod, loq, zone = calculate_sn(df, start, end)
+                        if sn is not None:
+                            st.write(f"S/N: {sn:.4f}, LOD: {lod:.4f}, LOQ: {loq:.4f}")
+                        else:
+                            st.error("Zone vide ou invalide")
+        elif action == "Linéarité":
+            linearity_page()
+
+if __name__ == "__main__":
     main()

@@ -1,5 +1,8 @@
 streamlit==1.30.0
 pandas==2.0.3
-numpy==1.27.0
+numpy==1.26.0
+plotly==5.17.0
 matplotlib==3.8.0
-camelot-py[cv]==0.10.1
+easyocr==1.7
+Pillow==10.1.0
+fpdf==2.7.0
