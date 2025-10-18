@@ -1,7 +1,5 @@
 streamlit==1.30.0
-pandas
-numpy
-matplotlib
-fpdf
-easyocr
-Pillow
+pandas==2.0.3
+numpy==1.26.5
+matplotlib==3.8.0
+fpdf==2.6.1
