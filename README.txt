@@ -1,18 +1,17 @@
-# LabT - Analytical Lab Tool
+# LabT
 
-**Description :**  
-LabT est une application Streamlit pour le calcul de S/N, LOD, LOQ et linéarité.  
-Elle supporte l’extraction de données depuis CSV, PNG, JPG et PDF via OCR.
+Application Streamlit pour calcul S/N USP et Linéarité.
 
-**Fonctionnalités :**  
-- Login utilisateur avec menu déroulant.  
-- Admin gère uniquement les utilisateurs.  
-- Calcul S/N USP avec sélection de zone.  
-- Calcul linéarité automatique, R² affiché, concentration inconnue calculée à partir de la courbe.  
-- Export rapport PDF avec logo, date et utilisateur.  
-- Interface moderne bleu, simple clic, boutons retour au menu principal.  
+## Fonctionnalités
 
-**Installation :**
+- Connexion sécurisée avec gestion utilisateurs (admin uniquement).  
+- Calcul S/N USP sur PDF et PNG via OCR.  
+- Linéarité : saisie manuelle ou CSV, calcul R², concentration/signal inconnu.  
+- Export PDF des rapports avec logo et date.  
+- Navigation simple et rapide, boutons à un seul clic.  
+
+## Installation
+
 ```bash
 pip install -r requirements.txt
 streamlit run app.py

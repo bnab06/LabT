@@ -1,5 +1,5 @@
 {
-  "admin": "admin123",
-  "bb": "bbpass",
-  "user": "userpass"
+    "admin": {"password": "bb"},
+    "bb": {"password": "bbpass"},
+    "user": {"password": "userpass"}
 }
