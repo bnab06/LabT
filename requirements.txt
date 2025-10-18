@@ -1,22 +1,11 @@
-# Streamlit pour l'interface
 streamlit==1.30.0
-
-# Pandas et NumPy pour le traitement des données
-pandas==2.0.3 --only-binary :all:
-numpy==1.25.0 --only-binary :all:
-
-# Graphiques
+pandas==2.0.3
+numpy==1.25.0
 plotly==5.15.0
 matplotlib==3.8.0
 seaborn==0.12.3
-
-# PDF et OCR
 pdfplumber==0.9.0
 pytesseract==0.4.3
 Pillow==10.1.0
-
-# Traitement d’images (sans dépendances système lourdes)
 opencv-python-headless==4.8.1.78
-
-# Génération de PDF pour rapports
 reportlab==4.0.0

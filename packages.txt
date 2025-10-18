@@ -2,3 +2,4 @@ build-essential
 python3-dev
 libatlas-base-dev
 gfortran
+tesseract-ocr
