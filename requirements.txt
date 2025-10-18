@@ -1,8 +1,7 @@
-streamlit>=1.25.0
+streamlit
 pandas
 numpy
 plotly
-pytesseract
-pdfplumber
-opencv-python-headless
 scikit-learn
+fpdf
+Pillow

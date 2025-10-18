@@ -1,18 +1,18 @@
-# LabT - Chromatogram Analysis
+# LabT
 
-LabT est une application Streamlit pour analyser des chromatogrammes, calculer le signal/bruit, LOD, LOQ et tracer des courbes de calibration (linéarité).
+LabT est une application Streamlit pour :
 
-## Fonctionnalités
+- Calculer Signal/Noise USP, LOD, LOQ à partir de fichiers CSV
+- Tracer des courbes de linéarité (entrée manuelle ou CSV)
+- Calculer une concentration inconnue à partir de la courbe de linéarité
+- Exporter un rapport PDF de linéarité avec date et utilisateur
+- Gestion des utilisateurs par l'admin
 
-- Login sécurisé avec `admin`, `bb` et `user`.
-- Import CSV, PNG, PDF pour calculs S/N.
-- Calcul automatique de Signal / Bruit, LOD, LOQ.
-- Courbes de linéarité avec calcul R².
-- Export graphique et rapport PDF (à implémenter).
-- Choix des unités : µg/mL ou mg/mL, aire ou absorbance.
+## Utilisateurs par défaut
+- admin / bb (rôle : admin)
+- bb / bb (rôle : user)
+- user / user (rôle : user)
 
-## Déploiement
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
+## Installation
+1. Installer Python 3.9+  
+2. Installer les dépendances :  
