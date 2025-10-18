@@ -3,187 +3,167 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from io import BytesIO
-from fpdf import FPDF
 from datetime import datetime
-import base64
+from fpdf import FPDF
+import io
+import os
 
-st.set_page_config(page_title="LabT", layout="wide")
+# -------------------- Initialisation --------------------
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'users' not in st.session_state:
+    # Exemple : admin = motdepasse, bb=user1, user=user2
+    st.session_state.users = {"admin":"admin123","bb":"bb123","user":"user123"}
 
-# ---------------------- USERS ----------------------
-USERS_FILE = "users.json"
-
-import json
-def load_users():
-    try:
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {"admin": "admin123", "bb": "bb123", "user": "user123"}
-
-def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f)
-
-# ---------------------- LOGIN ----------------------
-def login():
+# -------------------- Fonctions --------------------
+def login_page():
     st.title("LabT - Connexion")
-    users = load_users()
-    username = st.selectbox("Utilisateur", list(users.keys()))
+    user_choice = st.selectbox("Sélectionnez un utilisateur", list(st.session_state.users.keys()))
     password = st.text_input("Mot de passe", type="password")
-    login_btn = st.button("Se connecter")
-    if login_btn:
-        if username in users and password == users[username]:
-            st.session_state["user"] = username
-            st.success(f"Connecté en tant que {username}")
-            st.session_state["page"] = "home"
+    if st.button("Se connecter"):
+        if password == st.session_state.users[user_choice]:
+            st.session_state.user = user_choice
+            st.success(f"Connecté en tant que {user_choice}")
+            st.experimental_rerun()
         else:
-            st.error("Identifiants incorrects")
+            st.error("Mot de passe incorrect")
 
-# ---------------------- LOGOUT ----------------------
 def logout():
-    st.session_state.pop("user", None)
-    st.session_state["page"] = "login"
-    st.experimental_rerun()
+    if st.session_state.user:
+        st.session_state.user = None
+        st.success("Déconnecté")
+        st.experimental_rerun()
 
-# ---------------------- USER MANAGEMENT ----------------------
+# -------------------- Gestion Utilisateurs --------------------
 def manage_users():
-    st.subheader("Gestion des utilisateurs (Admin)")
-    users = load_users()
-    st.write("Utilisateurs existants :", list(users.keys()))
-    
-    with st.form("add_user_form"):
-        new_user = st.text_input("Nom utilisateur")
-        new_pass = st.text_input("Mot de passe", type="password")
-        add_btn = st.form_submit_button("Ajouter")
-        if add_btn and new_user and new_pass:
+    st.header("Gestion Utilisateurs (Admin)")
+    users = st.session_state.users
+    st.subheader("Ajouter un utilisateur")
+    new_user = st.text_input("Nom utilisateur")
+    new_pass = st.text_input("Mot de passe", type="password")
+    if st.button("Ajouter"):
+        if new_user and new_pass:
             users[new_user] = new_pass
-            save_users(users)
-            st.success(f"Utilisateur {new_user} ajouté.")
+            st.success(f"Utilisateur {new_user} ajouté")
+    st.subheader("Liste des utilisateurs")
+    for u in users:
+        st.write(u)
 
-    with st.form("delete_user_form"):
-        del_user = st.selectbox("Supprimer utilisateur", list(users.keys()))
-        del_btn = st.form_submit_button("Supprimer")
-        if del_btn:
-            if del_user in users:
-                users.pop(del_user)
-                save_users(users)
-                st.success(f"Utilisateur {del_user} supprimé.")
-
-# ---------------------- CHROMATOGRAMME ----------------------
-def load_chromatogram(file):
-    ext = file.name.split(".")[-1].lower()
-    if ext == "csv":
-        try:
-            df = pd.read_csv(file)
-            if "Time" not in df.columns or "Signal" not in df.columns:
-                df.columns = ["Time", "Signal"]
-            return df
-        except:
-            st.error("Erreur CSV : vérifiez le format")
-            return None
-    else:
-        st.warning("Extraction graphique pour PDF/PNG non implémentée. Affichez l'image seulement.")
-        return None
-
-def sn_page():
-    st.subheader("Calcul S/N, LOD, LOQ")
-    uploaded_file = st.file_uploader("Charger chromatogramme CSV/PNG/PDF", type=["csv","png","pdf"])
-    if uploaded_file:
-        df = load_chromatogram(uploaded_file)
-        if df is not None:
-            st.line_chart(df.set_index("Time")["Signal"])
-            start = st.number_input("Start Time", value=float(df['Time'].min()))
-            end = st.number_input("End Time", value=float(df['Time'].max()))
-            if st.button("Calculer S/N, LOD, LOQ"):
-                y = df[(df['Time']>=start)&(df['Time']<=end)]["Signal"].values
-                if len(y)==0:
-                    st.error("Pas de données dans la zone sélectionnée")
-                else:
-                    noise = np.std(y)
-                    peak = np.max(y)
-                    sn = peak / noise
-                    lod = 3*noise
-                    loq = 10*noise
-                    st.write(f"S/N: {sn:.2f}, LOD: {lod:.2f}, LOQ: {loq:.2f}")
-
-# ---------------------- LINEARITY ----------------------
+# -------------------- Linéarité --------------------
 def linearity_page():
-    st.subheader("Courbe de linéarité")
-    conc_str = st.text_area("Concentrations (séparées par virgule)")
-    resp_str = st.text_area("Réponses (séparées par virgule)")
-    unit_conc = st.selectbox("Unité concentration", ["µg/mL","mg/mL"])
-    unit_resp = st.selectbox("Réponse", ["Aire","Absorbance"])
-    unknown_type = st.radio("Calcul automatique", ["Concentration inconnue","Signal inconnu"])
-    unknown_val = st.number_input("Valeur inconnue (à calculer automatiquement)")
+    st.header("Linéarité")
+    st.write("Saisir les concentrations et réponses séparées par des virgules")
+    conc_str = st.text_input("Concentrations (ex: 1,2,3)")
+    resp_str = st.text_input("Réponses (aires ou absorbances) (ex: 10,20,30)")
+    unit = st.selectbox("Unité concentration", ["µg/ml", "mg/ml"])
+    y_unit = st.selectbox("Réponse", ["Aire","Absorbance"])
+    unknown_type = st.selectbox("Calculer", ["Concentration inconnue","Signal inconnu"])
+    unknown_val = st.text_input("Valeur inconnue (laisser vide si non applicable)")
 
     if st.button("Calculer linéarité"):
         try:
-            c = [float(x.strip()) for x in conc_str.split(",")]
-            r = [float(x.strip()) for x in resp_str.split(",")]
+            c = np.array([float(x.strip()) for x in conc_str.split(",")])
+            r = np.array([float(x.strip()) for x in resp_str.split(",")])
             if len(c)!=len(r):
-                st.error("Concentrations et réponses de longueurs différentes")
+                st.error("Les listes doivent avoir la même longueur")
                 return
-            df = pd.DataFrame({"Concentration": c, "Réponse": r})
-            # Regression linéaire
-            m, b = np.polyfit(df["Concentration"], df["Réponse"],1)
-            y_fit = m*np.array(c)+b
-            r2 = np.corrcoef(df["Réponse"], y_fit)[0,1]**2
-            st.write(f"Équation: y = {m:.3f}x + {b:.3f}, R² = {r2:.3f}")
-            # Plot
+            # Régression linéaire simple
+            slope, intercept = np.polyfit(c, r, 1)
+            y_fit = slope * c + intercept
+            r2 = np.corrcoef(c, r)[0,1]**2
+            st.write(f"Équation : y = {slope:.3f}x + {intercept:.3f}")
+            st.write(f"R² = {r2:.4f}")
             plt.figure()
-            plt.scatter(c,r,label="Points")
-            plt.plot(c,y_fit,color="red",label="Fit")
-            plt.xlabel(f"Concentration ({unit_conc})")
-            plt.ylabel(f"Réponse ({unit_resp})")
+            plt.plot(c, r, "o", label="Data")
+            plt.plot(c, y_fit, "-", label="Fit")
+            plt.xlabel(f"Concentration ({unit})")
+            plt.ylabel(f"{y_unit}")
             plt.legend()
             st.pyplot(plt)
-            # Calcul automatique
-            if unknown_val>0:
+            # Calcul automatique concentration/signal inconnu
+            if unknown_val:
+                val = float(unknown_val)
                 if unknown_type=="Concentration inconnue":
-                    conc_calc = (unknown_val - b)/m
-                    st.success(f"Concentration inconnue: {conc_calc:.3f} {unit_conc}")
+                    conc_unknown = (val - intercept)/slope
+                    st.success(f"Concentration inconnue = {conc_unknown:.4f} {unit}")
                 else:
-                    signal_calc = m*unknown_val+b
-                    st.success(f"Signal inconnu: {signal_calc:.3f} {unit_resp}")
+                    signal_unknown = slope*val + intercept
+                    st.success(f"Signal inconnu = {signal_unknown:.4f} {y_unit}")
         except Exception as e:
             st.error(f"Erreur: {e}")
 
     # Export PDF
+    company_name = st.text_input("Nom de l'entreprise (optionnel)")
     if st.button("Exporter PDF"):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial","B",16)
-        pdf.cell(0,10,"LabT - Rapport Linéarité",ln=True,align="C")
-        pdf.set_font("Arial","",12)
-        pdf.cell(0,10,f"Utilisateur: {st.session_state.get('user','')}",ln=True)
-        pdf.cell(0,10,f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",ln=True)
-        pdf.cell(0,10,f"Équation: y = {m:.3f}x + {b:.3f}, R² = {r2:.3f}",ln=True)
-        pdf.output("rapport_linearite.pdf")
-        st.success("PDF généré: rapport_linearite.pdf")
+        try:
+            pdf = FPDF()
+            pdf.add_page()
+            if os.path.exists("logo.png"):
+                pdf.image("logo.png", x=10, y=8, w=30)
+            pdf.set_font("Arial", "B", 16)
+            pdf.ln(20)
+            pdf.cell(0,10,"Rapport Linéarité LabT",ln=True,align="C")
+            pdf.set_font("Arial","",12)
+            pdf.ln(5)
+            pdf.cell(0,10,f"Utilisateur : {st.session_state.user}",ln=True)
+            pdf.cell(0,10,f"Date : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",ln=True)
+            if company_name:
+                pdf.cell(0,10,f"Entreprise : {company_name}",ln=True)
+            pdf.ln(5)
+            pdf.cell(0,10,f"Équation : y = {slope:.3f}x + {intercept:.3f}",ln=True)
+            pdf.cell(0,10,f"R² = {r2:.4f}",ln=True)
+            # Courbe
+            buf = io.BytesIO()
+            plt.figure()
+            plt.plot(c, r, "o", label="Data")
+            plt.plot(c, y_fit, "-", label="Fit")
+            plt.xlabel(f"Concentration ({unit})")
+            plt.ylabel(f"{y_unit}")
+            plt.legend()
+            plt.savefig(buf, format="png")
+            buf.seek(0)
+            plt.close()
+            pdf.image(buf, x=10, w=180)
+            buf.close()
+            pdf_file="Rapport_Linearite.pdf"
+            pdf.output(pdf_file)
+            st.success(f"PDF généré : {pdf_file}")
+            with open(pdf_file,"rb") as f:
+                st.download_button("Télécharger le PDF",f.read(),file_name=pdf_file)
+        except Exception as e:
+            st.error(f"Erreur lors du PDF: {e}")
 
-# ---------------------- MAIN ----------------------
-def main_menu():
-    if "user" not in st.session_state:
-        st.session_state["page"] = "login"
-
-    page = st.session_state.get("page","login")
-    if page=="login":
-        login()
-    else:
-        st.sidebar.button("Déconnexion", on_click=logout)
-        user = st.session_state["user"]
-        st.title(f"LabT - Bienvenue {user}")
-        if user=="admin":
-            manage_users()
-        else:
-            choix = st.radio("Choisir une fonction", ["Linéarité","S/N"])
-            if choix=="Linéarité":
-                linearity_page()
+# -------------------- S/N USP --------------------
+def sn_page():
+    st.header("S/N USP")
+    uploaded_file = st.file_uploader("Télécharger CSV ou PNG", type=["csv","png"])
+    if uploaded_file:
+        try:
+            if uploaded_file.name.endswith(".csv"):
+                df = pd.read_csv(uploaded_file, sep=None, engine='python')
+                st.write(df.head())
+                y = df.iloc[:,1].values
+                sn = np.max(y)/np.std(y)
+                st.success(f"S/N calculé : {sn:.3f}")
             else:
-                sn_page()
-        if st.button("Retour au menu principal"):
-            st.experimental_rerun()
+                st.warning("Extraction des données à partir d'images non implémentée pour PNG")
+        except Exception as e:
+            st.error(f"Erreur: {e}")
 
-if __name__=="__main__":
-    main_menu()
+# -------------------- Menu Principal --------------------
+def main_menu():
+    if st.session_state.user is None:
+        login_page()
+    else:
+        st.title(f"LabT - Connecté en tant que {st.session_state.user}")
+        st.button("Déconnexion", on_click=logout)
+        choice = st.selectbox("Choisir une fonction", ["Linéarité","S/N USP","Gestion Utilisateurs"] if st.session_state.user=="admin" else ["Linéarité","S/N USP"])
+        if choice=="Linéarité":
+            linearity_page()
+        elif choice=="S/N USP":
+            sn_page()
+        elif choice=="Gestion Utilisateurs" and st.session_state.user=="admin":
+            manage_users()
+
+# -------------------- Lancement --------------------
+main_menu()
