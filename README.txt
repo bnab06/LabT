@@ -1,21 +1,12 @@
-# LabT - Chromatography and Linearity App
+# LabT - Fast Version
 
-**Description:**
-LabT is a Streamlit-based application for chromatogram analysis, including:
-- Signal-to-noise (S/N) calculation
-- LOD & LOQ determination
-- Linearity plot and calculation
-- Concentration or signal prediction
-- Admin user management
-
-**Features:**
-- Login with role-based access (admin/user)
-- S/N, LOD, LOQ from CSV chromatograms
-- Manual or CSV input for linearity
-- Automatic R² calculation
-- PDF export of reports (with logo, date, and username)
-- Simple, modern UI (no sidebar)
-- All buttons work with a single click
+**Description:**  
+LabT rapide et légère pour l’analyse chromatographique avec :
+- Signal-to-noise (S/N)
+- LOD & LOQ
+- Linearity plots
+- Concentration / signal inconnu
+- Login avec rôle admin / utilisateur
 
 **Default Users:**
 - admin / admin123
@@ -23,6 +14,6 @@ LabT is a Streamlit-based application for chromatogram analysis, including:
 - user / user123
 
 **Usage:**
-1. Install requirements:
 ```bash
 pip install -r requirements.txt
+streamlit run app.py
