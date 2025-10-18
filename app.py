@@ -3,209 +3,177 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from sklearn.linear_model import LinearRegression
-from fpdf import FPDF
-from PIL import Image
-import io
-import datetime
+from datetime import datetime
 import json
 import os
 
-# --------------------------
-# Load users
-# --------------------------
+# ---------------------------
+# Utilitaires
+# ---------------------------
+
 USERS_FILE = "users.json"
+LOGO = "logo.png"  # optionnel, mettre un logo dans le dossier
 
+# Initialisation du fichier users.json si inexistant
 if not os.path.exists(USERS_FILE):
-    st.error("Fichier users.json manquant.")
-    st.stop()
+    default_users = {
+        "admin": {"password": "bb", "role": "admin"},
+        "bb": {"password": "bb", "role": "user"},
+        "user": {"password": "user", "role": "user"}
+    }
+    with open(USERS_FILE, "w") as f:
+        json.dump(default_users, f, indent=4)
 
-with open(USERS_FILE) as f:
-    users = json.load(f)
+def load_users():
+    with open(USERS_FILE, "r") as f:
+        return json.load(f)
 
-# --------------------------
-# Session state
-# --------------------------
-if "login" not in st.session_state:
-    st.session_state.login = False
-    st.session_state.user = None
-    st.session_state.role = None
-    st.session_state.page = "menu"
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
 
-# --------------------------
-# Login function
-# --------------------------
-def login():
-    st.title("LabT – Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Login"):
-        if username in users and users[username]["password"] == password:
-            st.session_state.login = True
-            st.session_state.user = username
-            st.session_state.role = users[username]["role"]
-            st.session_state.page = "menu"
-            st.success(f"Connecté en tant que {username}")
+def login_page():
+    st.title("LabT")
+    users = load_users()
+    st.sidebar.subheader("Se connecter")
+    username = st.sidebar.selectbox("Utilisateur", list(users.keys()))
+    password = st.sidebar.text_input("Mot de passe", type="password")
+    if st.sidebar.button("Login"):
+        if username in users and password == users[username]["password"]:
+            st.session_state["username"] = username
+            st.session_state["role"] = users[username]["role"]
+            st.session_state["page"] = "menu"
         else:
-            st.error("Identifiants incorrects")
+            st.sidebar.error("Identifiants incorrects")
 
-# --------------------------
-# Logout
-# --------------------------
-def logout():
-    st.session_state.login = False
-    st.session_state.user = None
-    st.session_state.role = None
-    st.session_state.page = "login"
+# ---------------------------
+# Menu principal
+# ---------------------------
+def menu_page():
+    st.subheader(f"Connecté en tant que: {st.session_state['username']}")
+    st.write("Choisir une fonction:")
+    choice = st.selectbox("Menu", ["Linéarité", "S/N USP", "Déconnexion"])
+    if choice == "Linéarité":
+        st.session_state["page"] = "linearity"
+    elif choice == "S/N USP":
+        st.session_state["page"] = "sn"
+    elif choice == "Déconnexion":
+        st.session_state.clear()
+        st.session_state["page"] = "login"
 
-# --------------------------
-# Main menu
-# --------------------------
-def menu():
-    st.markdown(f"### Connecté en tant que: {st.session_state.user}")
-    st.title("LabT – Menu Principal")
-    choice = st.selectbox("Choisir une fonctionnalité", ["--Sélectionner--","Signal/Noise USP", "Linéarité", "Gérer les utilisateurs (Admin)"])
-    if choice == "Signal/Noise USP":
-        st.session_state.page = "sn"
-    elif choice == "Linéarité":
-        st.session_state.page = "linearite"
-    elif choice == "Gérer les utilisateurs (Admin)":
-        if st.session_state.role == "admin":
-            st.session_state.page = "admin"
-        else:
-            st.warning("Accès réservé à l'admin")
-
-# --------------------------
-# S/N USP, LOD, LOQ
-# --------------------------
-def sn_page():
-    st.title("S/N USP, LOD, LOQ")
-    uploaded_file = st.file_uploader("Uploader un fichier CSV/PNG/PDF", type=["csv","png","pdf"])
-    if uploaded_file is not None:
-        try:
-            if uploaded_file.name.endswith(".csv"):
-                df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith(".png") or uploaded_file.name.endswith(".pdf"):
-                # OCR / image processing option skipped for rapid setup
-                st.warning("Extraction graphique non implémentée pour PDF/PNG. Convertir en CSV pour l'instant.")
-                return
-            else:
-                st.error("Format non supporté.")
-                return
-
-            st.dataframe(df.head())
-            start = st.number_input("Début (temps)", min_value=float(df.iloc[:,0].min()), max_value=float(df.iloc[:,0].max()), value=float(df.iloc[:,0].min()))
-            end = st.number_input("Fin (temps)", min_value=float(df.iloc[:,0].min()), max_value=float(df.iloc[:,0].max()), value=float(df.iloc[:,0].max()))
-            if st.button("Calculer S/N, LOD, LOQ"):
-                y = df.iloc[:,1][(df.iloc[:,0]>=start) & (df.iloc[:,0]<=end)]
-                noise = np.std(y[:5])
-                peak = np.max(y)
-                sn = peak / noise
-                lod = 3 * noise
-                loq = 10 * noise
-                st.write(f"Signal/Noise (USP): {sn:.2f}")
-                st.write(f"LOD: {lod:.2f}")
-                st.write(f"LOQ: {loq:.2f}")
-        except Exception as e:
-            st.error(f"Erreur: {e}")
-
-    if st.button("Retour au menu principal"):
-        st.session_state.page = "menu"
-
-# --------------------------
-# Linéarité
-# --------------------------
-def linearite_page():
-    st.title("Linéarité")
-    option = st.radio("Mode d'entrée", ["Manuelle","CSV"])
-    concentrations = []
-    responses = []
-    if option == "Manuelle":
-        conc_input = st.text_input("Entrer les concentrations séparées par des virgules (ex: 1,2,3)")
-        resp_input = st.text_input("Entrer les réponses correspondantes séparées par des virgules")
-        conc_unit = st.selectbox("Unité de concentration", ["µg/mL","mg/mL"])
-        resp_unit = st.selectbox("Nom axe Y", ["Aire","Absorbance"])
-        if st.button("Tracer courbe"):
-            try:
-                concentrations = [float(x.strip()) for x in conc_input.split(",")]
-                responses = [float(x.strip()) for x in resp_input.split(",")]
-                if len(concentrations) != len(responses):
-                    st.error("Le nombre de concentrations et réponses doit être identique.")
-                    return
-                df = pd.DataFrame({"Concentration": concentrations, "Réponse": responses})
-                X = np.array(concentrations).reshape(-1,1)
-                y = np.array(responses)
-                model = LinearRegression().fit(X,y)
-                r2 = model.score(X,y)
-                st.write(f"R² = {r2:.4f}")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=concentrations, y=responses, mode="markers", name="Points"))
-                fig.add_trace(go.Scatter(x=concentrations, y=model.predict(X), mode="lines", name="Régression"))
-                fig.update_layout(xaxis_title=f"Concentration ({conc_unit})", yaxis_title=f"{resp_unit}")
-                st.plotly_chart(fig)
-                unknown = st.number_input("Entrer une réponse inconnue pour estimer la concentration")
-                if st.button("Calculer concentration inconnue"):
-                    conc_unknown = (unknown - model.intercept_)/model.coef_[0]
-                    st.write(f"Concentration inconnue estimée: {conc_unknown:.4f} {conc_unit}")
-                    if st.button("Exporter rapport PDF"):
-                        pdf = FPDF()
-                        pdf.add_page()
-                        pdf.set_font("Arial","B",16)
-                        pdf.cell(0,10,"LabT - Rapport Linéarité",ln=True)
-                        pdf.set_font("Arial","",12)
-                        pdf.ln(10)
-                        pdf.cell(0,10,f"Utilisateur: {st.session_state.user}",ln=True)
-                        pdf.cell(0,10,f"Date: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",ln=True)
-                        pdf.ln(5)
-                        pdf.cell(0,10,f"R² = {r2:.4f}",ln=True)
-                        pdf.cell(0,10,f"Concentration inconnue estimée: {conc_unknown:.4f} {conc_unit}",ln=True)
-                        pdf.output("rapport_linearite.pdf")
-                        st.success("Rapport PDF généré: rapport_linearite.pdf")
-            except Exception as e:
-                st.error(f"Erreur: {e}")
-    elif option == "CSV":
-        uploaded_csv = st.file_uploader("Uploader CSV avec deux colonnes: Concentration, Réponse", type="csv")
-        if uploaded_csv is not None:
-            try:
-                df = pd.read_csv(uploaded_csv)
-                st.dataframe(df.head())
-                X = df.iloc[:,0].values.reshape(-1,1)
-                y = df.iloc[:,1].values
-                model = LinearRegression().fit(X,y)
-                r2 = model.score(X,y)
-                st.write(f"R² = {r2:.4f}")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df.iloc[:,0], y=df.iloc[:,1], mode="markers", name="Points"))
-                fig.add_trace(go.Scatter(x=df.iloc[:,0], y=model.predict(X), mode="lines", name="Régression"))
-                fig.update_layout(xaxis_title="Concentration", yaxis_title="Réponse")
-                st.plotly_chart(fig)
-            except Exception as e:
-                st.error(f"Erreur: {e}")
-
-    if st.button("Retour au menu principal"):
-        st.session_state.page = "menu"
-
-# --------------------------
-# Admin
-# --------------------------
+# ---------------------------
+# Gestion utilisateurs (Admin)
+# ---------------------------
 def admin_page():
-    st.title("Gérer les utilisateurs")
-    st.write(users)
-    st.write("L'admin peut uniquement consulter la liste des utilisateurs.")
-    if st.button("Retour au menu principal"):
-        st.session_state.page = "menu"
+    st.subheader("Gestion des utilisateurs")
+    users = load_users()
+    st.write("Liste des utilisateurs existants:")
+    selected_user = st.selectbox("Sélectionner un utilisateur", list(users.keys()))
+    new_pass = st.text_input("Nouveau mot de passe")
+    new_role = st.selectbox("Rôle", ["user", "admin"], index=0 if users[selected_user]["role"]=="user" else 1)
+    if st.button("Modifier"):
+        users[selected_user]["password"] = new_pass or users[selected_user]["password"]
+        users[selected_user]["role"] = new_role
+        save_users(users)
+        st.success("Utilisateur modifié")
+    if st.button("Supprimer"):
+        if selected_user != "admin":
+            users.pop(selected_user)
+            save_users(users)
+            st.success("Utilisateur supprimé")
+        else:
+            st.error("Impossible de supprimer l'admin")
+    if st.button("Ajouter utilisateur"):
+        new_user = st.text_input("Nom du nouvel utilisateur")
+        new_pass2 = st.text_input("Mot de passe du nouvel utilisateur")
+        if new_user and new_pass2 and new_user not in users:
+            users[new_user] = {"password": new_pass2, "role": "user"}
+            save_users(users)
+            st.success("Utilisateur ajouté")
 
-# --------------------------
-# Page dispatcher
-# --------------------------
-if not st.session_state.login:
-    login()
-else:
-    st.sidebar.button("Déconnexion", on_click=logout)
-    if st.session_state.page == "menu":
-        menu()
-    elif st.session_state.page == "sn":
-        sn_page()
-    elif st.session_state.page == "linearite":
-        linearite_page()
-    elif st.session_state.page == "admin":
-        admin_page()
+# ---------------------------
+# Lecture CSV "smart"
+# ---------------------------
+def read_csv_smart(file):
+    try:
+        df = pd.read_csv(file, sep=None, engine='python')
+        if df.shape[1] == 2:
+            df.columns = ["Time", "Signal"]
+        return df
+    except Exception as e:
+        st.error(f"Erreur lecture CSV: {e}")
+        return None
+
+# ---------------------------
+# Linéarité
+# ---------------------------
+def linearity_page():
+    st.subheader("Courbe de linéarité")
+    # Entrée manuelle
+    conc_str = st.text_input("Concentrations (séparées par des virgules)", value="10,20,30")
+    resp_str = st.text_input("Réponse (aires ou absorbance)", value="100,200,300")
+    unit_conc = st.selectbox("Unité de concentration", ["µg/mL", "mg/mL"], index=0)
+    unit_resp = st.selectbox("Type de réponse", ["Aire", "Absorbance"])
+    if st.button("Tracer la courbe"):
+        try:
+            c = np.array([float(x) for x in conc_str.split(",")])
+            r = np.array([float(x) for x in resp_str.split(",")])
+            df = pd.DataFrame({"Concentration": c, "Réponse": r})
+            X = df[["Concentration"]]
+            y = df["Réponse"]
+            model = LinearRegression().fit(X, y)
+            y_pred = model.predict(X)
+            r2 = model.score(X, y)
+            st.write(f"R² = {r2:.4f}")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["Concentration"], y=df["Réponse"], mode='markers', name='Données'))
+            fig.add_trace(go.Scatter(x=df["Concentration"], y=y_pred, mode='lines', name='Fit'))
+            fig.update_layout(xaxis_title=f"Concentration ({unit_conc})", yaxis_title=f"Réponse ({unit_resp})")
+            st.plotly_chart(fig)
+            # Calcul concentration inconnue
+            unknown_resp = st.number_input("Réponse inconnue")
+            if unknown_resp:
+                conc_unknown = (unknown_resp - model.intercept_) / model.coef_[0]
+                st.success(f"Concentration inconnue: {conc_unknown:.4f} {unit_conc}")
+        except Exception as e:
+            st.error(f"Erreur calcul linéarité: {e}")
+
+# ---------------------------
+# S/N USP
+# ---------------------------
+def sn_page():
+    st.subheader("Calcul S/N USP")
+    uploaded_file = st.file_uploader("Upload CSV chromatogramme", type=["csv"])
+    if uploaded_file:
+        df = read_csv_smart(uploaded_file)
+        if df is not None:
+            start = st.number_input("Start Time", value=float(df['Time'].min()))
+            end = st.number_input("End Time", value=float(df['Time'].max()))
+            y = df.loc[(df["Time"]>=start) & (df["Time"]<=end), "Signal"]
+            sn = np.max(y)/np.std(y)
+            lod = 3 * np.std(y)
+            loq = 10 * np.std(y)
+            st.write(f"S/N: {sn:.4f}")
+            st.write(f"LOD: {lod:.4f}")
+            st.write(f"LOQ: {loq:.4f}")
+
+# ---------------------------
+# Main
+# ---------------------------
+if "page" not in st.session_state:
+    st.session_state["page"] = "login"
+
+if st.session_state["page"] == "login":
+    login_page()
+elif st.session_state.get("role") == "admin" and st.session_state["page"]=="menu":
+    admin_page()
+elif st.session_state.get("page")=="menu":
+    menu_page()
+elif st.session_state["page"]=="linearity":
+    linearity_page()
+    if st.button("Retour au menu principal"):
+        st.session_state["page"] = "menu"
+elif st.session_state["page"]=="sn":
+    sn_page()
+    if st.button("Retour au menu principal"):
+        st.session_state["page"] = "menu"

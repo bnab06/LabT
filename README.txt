@@ -1,18 +1,23 @@
 # LabT
 
-LabT est une application Streamlit pour :
+Application Streamlit pour le calcul de linéarité et S/N USP.
 
-- Calculer Signal/Noise USP, LOD, LOQ à partir de fichiers CSV
-- Tracer des courbes de linéarité (entrée manuelle ou CSV)
-- Calculer une concentration inconnue à partir de la courbe de linéarité
-- Exporter un rapport PDF de linéarité avec date et utilisateur
-- Gestion des utilisateurs par l'admin
+## Fonctionnalités
 
-## Utilisateurs par défaut
-- admin / bb (rôle : admin)
-- bb / bb (rôle : user)
-- user / user (rôle : user)
+- Login sécurisé avec mot de passe
+- Admin: gérer les utilisateurs (ajout, suppression, modification)
+- Linéarité:
+  - Entrée manuelle ou CSV
+  - Choix de l’unité de concentration (µg/mL ou mg/mL)
+  - Type de réponse (Aire ou Absorbance)
+  - Affichage automatique R²
+  - Calcul de la concentration inconnue
+  - Graphique interactif
+- S/N USP:
+  - Calcul automatique S/N, LOD, LOQ à partir d’un CSV
+- Boutons à simple clic
+- Retour au menu principal depuis toutes les pages
 
 ## Installation
-1. Installer Python 3.9+  
-2. Installer les dépendances :  
+
+1. Créer
