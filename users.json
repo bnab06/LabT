@@ -1,5 +1,7 @@
 {
-    "admin": {"password": "admin123"},
-    "bb": {"password": "bb123"},
-    "user": {"password": "user123"}
+    "users": [
+        {"username": "admin", "password": "bb", "role": "admin"},
+        {"username": "BB", "password": "bb", "role": "user"},
+        {"username": "user", "password": "user", "role": "user"}
+    ]
 }

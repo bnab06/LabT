@@ -1,7 +1,9 @@
-streamlit
-pandas
-numpy
-plotly
-fpdf
-Pillow
-pdfplumber
+streamlit==1.30.0
+pandas==2.1.0
+numpy==1.26.0
+plotly==5.21.0
+matplotlib==3.8.0
+pdf2image==1.17.1
+Pillow==10.0.0
+reportlab==4.0.0
+scikit-learn==1.3.0
