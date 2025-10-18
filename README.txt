@@ -1,17 +1,15 @@
-# LabT
-
-Application Streamlit pour calcul S/N USP et Linéarité.
+# LabT - Version Optimisée
 
 ## Fonctionnalités
-
-- Connexion sécurisée avec gestion utilisateurs (admin uniquement).  
-- Calcul S/N USP sur PDF et PNG via OCR.  
-- Linéarité : saisie manuelle ou CSV, calcul R², concentration/signal inconnu.  
-- Export PDF des rapports avec logo et date.  
-- Navigation simple et rapide, boutons à un seul clic.  
+- Linéarité avec graphique et calcul concentration inconnue
+- S/N, LOD, LOQ sur CSV, PNG, PDF
+- Calcul automatique selon signal ou concentration
+- Export PDF
+- Boutons à simple clic, retour menu
+- Gestion utilisateurs par admin uniquement
+- Connexion via menu déroulant
 
 ## Installation
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
+1. Copier tous les fichiers dans le dépôt Streamlit
+2. Installer dépendances : `pip install -r requirements.txt`
+3. Lancer : `streamlit run app.py`

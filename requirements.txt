@@ -1,9 +1,7 @@
 streamlit==1.30.0
-pandas>=2.0.3
+pandas
 numpy
-plotly
 matplotlib
+fpdf
 easyocr
 Pillow
-fpdf2
-PyMuPDF
