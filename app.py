@@ -119,9 +119,9 @@ def generate_pdf(title, content_text, company=""):
 def offer_pdf_actions(pdf_file):
     with open(pdf_file, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
-    st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Download PDF</a>', unsafe_allow_html=True
-#
--------------------------------
+    st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Download PDF</a>', unsafe_allow_html=True)
+
+#-------------------------------
 # Linéarité
 # -------------------------------
 def linearity_page():
@@ -176,3 +176,96 @@ def linearity_page():
             st.error(f"Error in calculation / Erreur dans les calculs : {e}")
 
     st.button("⬅️ Logout / Déconnexion", on_click=logout)
+
+# -------------------------------
+# S/N Page
+# -------------------------------
+def calculate_sn(df):
+    signal_peak = df["signal"].max()
+    noise = df["signal"].std()
+    sn_ratio = signal_peak / noise
+    baseline = df.iloc[:max(1, int(0.1*len(df)))]
+    noise_usp = baseline["signal"].std()
+    sn_usp = signal_peak / noise_usp
+    lod = 3 * noise
+    loq = 10 * noise
+    return sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp
+
+def sn_page():
+    st.header("📊 Signal/Noise / Rapport S/N")
+    st.write(f"You are logged in as / Vous êtes connecté en tant que **{st.session_state.username}**")
+    company_name = st.text_input("Company name for PDF / Nom de la compagnie pour PDF :", value="", key="company_name_sn")
+
+    uploaded_file = st.file_uploader("Upload chromatogram CSV / Téléverser CSV", type=["csv"], key="sn_upload")
+    if uploaded_file:
+        try:
+            df = pd.read_csv(uploaded_file)
+            df.columns = [c.strip().lower() for c in df.columns]
+            if "time" not in df.columns or "signal" not in df.columns:
+                st.error("CSV must contain columns: Time and Signal / CSV doit contenir Time et Signal")
+                return
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["time"], y=df["signal"], mode="lines", name="Signal"))
+            fig.update_layout(xaxis_title="Time / Temps", yaxis_title="Signal", title="Chromatogram")
+            st.plotly_chart(fig)
+
+            sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp = calculate_sn(df)
+            st.success(f"Classical S/N = {sn_ratio:.2f}")
+            st.info(f"USP S/N = {sn_usp:.2f} (baseline noise = {noise_usp:.4f})")
+            st.info(f"LOD = {lod:.4f}, LOQ = {loq:.4f}")
+
+            if "slope" in st.session_state and st.session_state.slope != 0:
+                sn_conc = sn_ratio /                st.session_state.slope
+                sn_usp_conc = sn_usp / st.session_state.slope
+                st.info(f"S/N in concentration = {sn_conc:.4f} {st.session_state.unit}")
+                st.info(f"USP S/N in concentration = {sn_usp_conc:.4f} {st.session_state.unit}")
+
+            def export_pdf_sn():
+                content_text = f"""Signal to Noise Analysis:
+Signal max: {signal_peak}
+Noise: {noise:.4f}
+S/N ratio: {sn_ratio:.2f}
+USP S/N: {sn_usp:.2f}
+LOD: {lod:.4f}, LOQ: {loq:.4f}
+S/N in concentration: {sn_conc:.4f if 'sn_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}
+USP S/N in concentration: {sn_usp_conc:.4f if 'sn_usp_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}"""
+                pdf_file = generate_pdf("SN_Report", content_text, company_name)
+                offer_pdf_actions(pdf_file)
+
+            st.button("Export PDF / Exporter PDF", on_click=export_pdf_sn)
+
+        except Exception as e:
+            st.error(f"Error reading CSV / Erreur de lecture CSV : {e}")
+
+    st.button("⬅️ Logout / Déconnexion", on_click=logout)
+
+# -------------------------------
+# Main Menu
+# -------------------------------
+def main_menu():
+    role = st.session_state.role
+    if role == "admin":
+        manage_users()
+    elif role == "user":
+        choice = st.selectbox("Select option / Choisir option :", ["Linearity / Courbe de linéarité", "Signal/Noise / Calcul S/N"])
+        if choice.startswith("Linearity"):
+            linearity_page()
+        else:
+            sn_page()
+    else:
+        st.error("Unknown role / Rôle inconnu.")
+
+# -------------------------------
+# Run App
+# -------------------------------
+if __name__ == "__main__":
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.username = ""
+        st.session_state.role = ""
+        st.session_state.current_page = None
+    if not st.session_state.logged_in:
+        login()
+    else:
+        main_menu()
