@@ -123,30 +123,6 @@ def generate_pdf(title, content_text, fig=None, company=""):
 # -------------------------------
 # Linéarité
 # -------------------------------
-def calculate_linearity(conc, resp, unknown_type, unknown_value, unit):
-    slope, intercept = np.polyfit(conc, resp, 1)
-    eq = f"y = {slope:.4f}x + {intercept:.4f}"
-
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
-    fig.add_trace(go.Scatter(x=conc, y=slope * conc + intercept, mode="lines", name=f"Droite ({eq})"))
-    fig.update_layout(xaxis_title=f"Concentration ({unit})", yaxis_title="Signal", title="Courbe de linéarité")
-
-    residuals = resp - (slope * conc + intercept)
-    noise = np.std(residuals)
-    lod = 3 * noise / slope
-    loq = 10 * noise / slope
-
-    if slope == 0:
-        unknown_result = None
-    else:
-        if unknown_type == "Concentration inconnue":
-            unknown_result = (unknown_value - intercept) / slope
-        else:
-            unknown_result = slope * unknown_value + intercept
-
-    return eq, fig, lod, loq, unknown_result
-
 def linearity_page():
     st.header("📈 Courbe de linéarité")
     st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
@@ -155,7 +131,7 @@ def linearity_page():
     resp_input = st.text_input("Réponses (séparées par des virgules)", key="resp_input")
     unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
     unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
-    unit = st.selectbox("Unité :", ["mg/L", "µg/mL", "g/L"], key="unit")
+    unit = st.selectbox("Unité :", ["µg/mL", "mg/L", "g/L"], index=0, key="unit")  # µg/mL par défaut
     company_name = st.text_input("Nom de la compagnie pour le rapport PDF :", value="", key="company_name")
 
     if conc_input and resp_input:
@@ -166,16 +142,30 @@ def linearity_page():
                 st.warning("Les listes doivent avoir la même taille et ne pas être vides.")
                 return
 
-            eq, fig, lod, loq, unknown_result = calculate_linearity(conc, resp, unknown_type, unknown_value, unit)
+            slope, intercept = np.polyfit(conc, resp, 1)
+            eq = f"y = {slope:.4f}x + {intercept:.4f}"
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
+            fig.add_trace(go.Scatter(x=conc, y=slope * conc + intercept, mode="lines", name=f"Droite ({eq})"))
+            fig.update_layout(xaxis_title=f"Concentration ({unit})", yaxis_title="Signal", title="Courbe de linéarité")
             st.plotly_chart(fig)
             st.success(f"Équation : {eq}")
-            st.info(f"LOD = {lod:.4f} {unit}, LOQ = {loq:.4f} {unit}")
-            if unknown_result is not None:
-                st.info(f"Résultat inconnu = {unknown_result:.4f} {unit if unknown_type=='Concentration inconnue' else ''}")
+
+            # Calcul inconnu instantané
+            if slope == 0:
+                st.error("La pente est nulle, impossible de calculer l’inconnu.")
+            else:
+                if unknown_type == "Concentration inconnue":
+                    result = (unknown_value - intercept) / slope
+                    st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
+                else:
+                    result = slope * unknown_value + intercept
+                    st.info(f"🔹 Signal inconnu = {result:.4f}")
 
             # Export PDF
             def export_pdf_linearity():
-                content_text = f"Courbe de linéarité:\nÉquation: {eq}\nLOD: {lod:.4f} {unit}, LOQ: {loq:.4f} {unit}\nType inconnu: {unknown_type}\nValeur inconnue: {unknown_value}\nRésultat: {unknown_result:.4f} {unit if unknown_type=='Concentration inconnue' else ''}"
+                content_text = f"Courbe de linéarité:\nÉquation: {eq}\nType inconnu: {unknown_type}\nValeur inconnue: {unknown_value}\nRésultat: {result:.4f} {unit if unknown_type=='Concentration inconnue' else ''}"
                 pdf_file = generate_pdf("Linearity_Report", content_text, fig, company_name)
                 st.success(f"PDF généré : {pdf_file}")
 
