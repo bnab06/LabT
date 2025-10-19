@@ -31,7 +31,7 @@ def save_users(users):
 # -------------------------------
 def logout():
     st.session_state.logged_in = False
-    st.rerun()  # ✅ corrigé
+    st.experimental_rerun()
 
 def login():
     users = load_users()
@@ -39,13 +39,13 @@ def login():
     selected_user = st.selectbox("Choisir un utilisateur :", list(users.keys()))
     password = st.text_input("Mot de passe :", type="password")
 
-    if st.button("Se connecter"):
+    if st.button("Se connecter", key="login_btn"):
         if selected_user in users and users[selected_user]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = selected_user
             st.session_state.role = users[selected_user]["role"]
             st.success("Connexion réussie ✅")
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error("Nom d’utilisateur ou mot de passe incorrect ❌")
 
@@ -56,12 +56,12 @@ def manage_users():
     st.header("👥 Gestion des utilisateurs")
     users = load_users()
 
-    action = st.selectbox("Action :", ["Ajouter", "Modifier", "Supprimer"])
-    username = st.text_input("Nom d’utilisateur :")
-    password = st.text_input("Mot de passe :")
-    role = st.selectbox("Rôle :", ["user", "admin"])
+    action = st.selectbox("Action :", ["Ajouter", "Modifier", "Supprimer"], key="action_admin")
+    username = st.text_input("Nom d’utilisateur :", key="username_admin")
+    password = st.text_input("Mot de passe :", key="password_admin")
+    role = st.selectbox("Rôle :", ["user", "admin"], key="role_admin")
 
-    if st.button("Valider"):
+    if st.button("Valider", key="validate_admin"):
         if action == "Ajouter":
             if username in users:
                 st.warning("Utilisateur déjà existant.")
@@ -88,43 +88,47 @@ def manage_users():
                 save_users(users)
                 st.success("Utilisateur supprimé ✅")
 
-    if st.button("⬅️ Déconnexion"):
+    if st.button("⬅️ Déconnexion", key="logout_admin"):
         logout()
 
 # -------------------------------
-# Page Linéarité
+# Page Linéarité améliorée
 # -------------------------------
 def linearity_page():
     st.header("📈 Courbe de linéarité")
 
-    conc_input = st.text_input("Concentrations connues (séparées par des virgules)")
-    resp_input = st.text_input("Réponses (absorbance ou aire, séparées par des virgules)")
+    conc_input = st.text_input("Concentrations connues (séparées par des virgules)", key="conc_input")
+    resp_input = st.text_input("Réponses (absorbance ou aire, séparées par des virgules)", key="resp_input")
 
-    unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"])
-    unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1)
-    unit = st.text_input("Unité :", value="")
+    unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
+    unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
+    unit = st.selectbox("Unité :", ["mg/L", "µg/mL", "g/L", "absorbance", "aire"], key="unit")
 
-    if st.button("Tracer la courbe"):
-        try:
-            conc = np.array([float(x.strip()) for x in conc_input.split(",") if x.strip()])
-            resp = np.array([float(x.strip()) for x in resp_input.split(",") if x.strip()])
-            if len(conc) != len(resp) or len(conc) == 0:
-                st.error("Les listes doivent avoir la même taille et ne pas être vides.")
-                return
+    try:
+        conc = np.array([float(x.strip()) for x in conc_input.split(",") if x.strip()])
+        resp = np.array([float(x.strip()) for x in resp_input.split(",") if x.strip()])
+        if len(conc) != len(resp) or len(conc) == 0:
+            st.warning("Les listes doivent avoir la même taille et ne pas être vides.")
+            return
 
-            slope, intercept = np.polyfit(conc, resp, 1)
-            eq = f"y = {slope:.4f}x + {intercept:.4f}"
+        slope, intercept = np.polyfit(conc, resp, 1)
+        eq = f"y = {slope:.4f}x + {intercept:.4f}"
 
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
-            fig.add_trace(go.Scatter(x=conc, y=slope * conc + intercept,
-                                     mode="lines", name=f"Droite ({eq})"))
-            fig.update_layout(xaxis_title="Concentration", yaxis_title="Signal",
-                              title="Courbe de linéarité")
-            st.plotly_chart(fig)
+        # Graphique
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
+        fig.add_trace(go.Scatter(x=conc, y=slope * conc + intercept, mode="lines", name=f"Droite ({eq})"))
+        fig.update_layout(xaxis_title=f"Concentration ({unit})",
+                          yaxis_title="Signal",
+                          title="Courbe de linéarité")
+        st.plotly_chart(fig)
 
-            st.success(f"Équation : {eq}")
+        st.success(f"Équation : {eq}")
 
+        # Calcul inconnu instantané
+        if slope == 0:
+            st.error("La pente est nulle, impossible de calculer l’inconnu.")
+        else:
             if unknown_type == "Concentration inconnue":
                 result = (unknown_value - intercept) / slope
                 st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
@@ -132,44 +136,50 @@ def linearity_page():
                 result = slope * unknown_value + intercept
                 st.info(f"🔹 Signal inconnu = {result:.4f} {unit}")
 
-        except Exception as e:
-            st.error(f"Erreur dans les calculs : {e}")
+    except Exception as e:
+        st.error(f"Erreur dans les calculs : {e}")
 
-    if st.button("⬅️ Déconnexion"):
+    if st.button("⬅️ Déconnexion", key="logout_linearity"):
         logout()
 
 # -------------------------------
-# Page S/N
+# Page S/N améliorée
 # -------------------------------
 def sn_page():
     st.header("📊 Calcul du rapport signal/bruit (S/N)")
 
-    uploaded_file = st.file_uploader("Téléverser un chromatogramme (CSV, PNG ou PDF)")
+    uploaded_file = st.file_uploader("Téléverser un chromatogramme (CSV)", type=["csv"], key="sn_upload")
 
     if uploaded_file is not None:
-        if uploaded_file.name.endswith(".csv"):
-            try:
-                df = pd.read_csv(uploaded_file)
-                cols = [c.lower() for c in df.columns]
-                if "time" not in cols or "signal" not in cols:
-                    st.error("CSV doit contenir les colonnes : Time et Signal")
-                    return
+        try:
+            df = pd.read_csv(uploaded_file)
+            df.columns = [c.lower() for c in df.columns]
 
-                df.columns = [c.lower() for c in df.columns]
-                st.line_chart(df, x="time", y="signal")
+            if "time" not in df.columns or "signal" not in df.columns:
+                st.error("CSV doit contenir les colonnes : Time et Signal")
+                return
 
-                noise = df["signal"].std()
-                signal = df["signal"].max()
-                sn_ratio = signal / noise
-                st.success(f"Rapport S/N = {sn_ratio:.2f}")
+            # Graphique
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["time"], y=df["signal"], mode="lines", name="Signal"))
+            fig.update_layout(xaxis_title="Temps",
+                              yaxis_title="Signal",
+                              title="Chromatogramme")
+            st.plotly_chart(fig)
 
-            except Exception as e:
-                st.error(f"Erreur de lecture CSV : {e}")
+            # Option de calcul S/N
+            noise_window = st.slider("Fenêtre pour le bruit (%)", min_value=5, max_value=50, value=20, step=5, key="noise_window")
+            noise = df["signal"].std()
+            signal_peak = df["signal"].max()
+            sn_ratio = signal_peak / noise
+            st.success(f"Rapport S/N = {sn_ratio:.2f}")
 
-        else:
-            st.warning("Formats PDF et PNG non encore pris en charge.")
+        except Exception as e:
+            st.error(f"Erreur de lecture CSV : {e}")
+    else:
+        st.info("Veuillez téléverser un fichier CSV contenant les colonnes Time et Signal.")
 
-    if st.button("⬅️ Déconnexion"):
+    if st.button("⬅️ Déconnexion", key="logout_sn"):
         logout()
 
 # -------------------------------
@@ -182,7 +192,7 @@ def main_menu():
     if role == "admin":
         manage_users()
     elif role == "user":
-        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"])
+        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"], key="main_choice")
         if choice == "Courbe de linéarité":
             linearity_page()
         else:
