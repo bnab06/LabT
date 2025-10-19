@@ -2,5 +2,5 @@ streamlit==1.39.0
 pandas==2.2.3
 numpy==2.1.3
 plotly==5.24.1
-fpdf2==2.8.1    # ou fpdf==1.7.2 selon ce que tu préfères ; both provide FPDF
+fpdf2==2.8.1
 matplotlib==3.7.2
