@@ -11,31 +11,12 @@ import base64
 USERS_FILE = "users.json"
 
 # -------------------------------
-# Initialisation de session_state
-# -------------------------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "role" not in st.session_state:
-    st.session_state.role = ""
-if "unit" not in st.session_state:
-    st.session_state.unit = "µg/mL"
-if "slope" not in st.session_state:
-    st.session_state.slope = None
-if "language" not in st.session_state:
-    st.session_state.language = "EN"
-if "current_page" not in st.session_state:
-    st.session_state.current_page = None
-
-# -------------------------------
 # Gestion des utilisateurs
 # -------------------------------
 def load_users():
     if not os.path.exists(USERS_FILE):
         users = {
             "admin": {"password": "admin", "role": "admin"},
-            "bb": {"password": "bb", "role": "user"},
             "user": {"password": "user", "role": "user"},
         }
         with open(USERS_FILE, "w") as f:
@@ -48,14 +29,11 @@ def save_users(users):
         json.dump(users, f, indent=4)
 
 # -------------------------------
-# Connexion / Déconnexion
+# Connexion et session
 # -------------------------------
 def logout():
     st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.session_state.role = ""
     st.session_state.current_page = None
-    st.experimental_rerun()
 
 def login_action(selected_user, password):
     users = load_users()
@@ -64,63 +42,61 @@ def login_action(selected_user, password):
         st.session_state.username = selected_user
         st.session_state.role = users[selected_user]["role"]
         st.session_state.current_page = "manage_users" if st.session_state.role == "admin" else "linearity"
-        msg = "Connexion réussie ✅" if st.session_state.language=="FR" else "Login successful ✅"
-        st.success(f"{msg} / You are logged in as {selected_user}")
-        st.experimental_rerun()
+        st.success(f"Connexion réussie ✅ / You are logged in as {selected_user}")
     else:
         st.error("Nom d’utilisateur ou mot de passe incorrect ❌ / Incorrect username or password ❌")
 
 def login():
     st.title("🔬 LabT - Login / Connexion")
-    users = load_users()
-    selected_user = st.selectbox("Select user / Choisir un utilisateur:", list(users.keys()))
-    password = st.text_input("Password / Mot de passe:", type="password")
+    selected_user = st.selectbox("Choose user / Choisir utilisateur :", list(load_users().keys()))
+    password = st.text_input("Password / Mot de passe :", type="password")
     st.button("Login / Se connecter", on_click=login_action, args=(selected_user, password))
 
 # -------------------------------
-# Admin: Gestion utilisateurs
+# Page admin : gestion des utilisateurs
 # -------------------------------
 def validate_user_action(action, username, password, role):
-    if not username or (action != "Supprimer / Delete" and not password):
-        st.warning("Tous les champs doivent être remplis ! / All fields must be filled!")
+    if not username or (action != "Supprimer" and not password):
+        st.warning("All fields must be filled / Tous les champs doivent être remplis !")
         return
     users = load_users()
-    if action in ["Ajouter / Add"]:
+    if action in ["Ajouter", "Add"]:
         if username in users:
-            st.warning("Utilisateur déjà existant / User already exists")
+            st.warning("User already exists / Utilisateur déjà existant.")
         else:
             users[username] = {"password": password, "role": role}
             save_users(users)
-            st.success("Utilisateur ajouté ✅ / User added ✅")
-    elif action in ["Modifier / Edit"]:
+            st.success("User added ✅ / Utilisateur ajouté ✅")
+    elif action in ["Modifier", "Modify"]:
         if username not in users:
-            st.warning("Utilisateur introuvable / User not found")
+            st.warning("User not found / Utilisateur introuvable.")
         else:
             if password:
                 users[username]["password"] = password
             users[username]["role"] = role
             save_users(users)
-            st.success("Utilisateur modifié ✅ / User modified ✅")
-    elif action in ["Supprimer / Delete"]:
+            st.success("User modified ✅ / Utilisateur modifié ✅")
+    elif action in ["Supprimer", "Delete"]:
         if username not in users:
-            st.warning("Utilisateur introuvable / User not found")
+            st.warning("User not found / Utilisateur introuvable.")
         else:
             del users[username]
             save_users(users)
-            st.success("Utilisateur supprimé ✅ / User deleted ✅")
+            st.success("User deleted ✅ / Utilisateur supprimé ✅")
 
 def manage_users():
-    st.header("👥 User Management / Gestion des utilisateurs")
-    st.write(f"You are logged in as / Vous êtes connecté en tant que **{st.session_state.username}**")
-    action = st.selectbox("Action:", ["Ajouter / Add", "Modifier / Edit", "Supprimer / Delete"])
-    username = st.text_input("Username / Nom d’utilisateur:")
-    password = st.text_input("Password / Mot de passe:")
-    role = st.selectbox("Role / Rôle:", ["user", "admin"])
+    st.header("👥 User management / Gestion des utilisateurs")
+    st.write(f"You are logged in as / Vous êtes connecté en tant que: **{st.session_state.username}**")
+
+    action = st.selectbox("Action / Action :", ["Ajouter / Add", "Modifier / Modify", "Supprimer / Delete"], key="action_admin")
+    username = st.text_input("Username / Nom d’utilisateur :", key="username_admin")
+    password = st.text_input("Password / Mot de passe :", key="password_admin")
+    role = st.selectbox("Role / Rôle :", ["user", "admin"], key="role_admin")
     st.button("Validate / Valider", on_click=validate_user_action, args=(action, username, password, role))
     st.button("⬅️ Logout / Déconnexion", on_click=logout)
 
 # -------------------------------
-# PDF utils
+# PDF generation
 # -------------------------------
 def generate_pdf(title, content_text, company=""):
     pdf = FPDF()
@@ -128,12 +104,13 @@ def generate_pdf(title, content_text, company=""):
     pdf.set_font("Arial", "B", 16)
     pdf.cell(0, 10, "LabT Report", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 10, f"Company: {company}", ln=True)
-    pdf.cell(0, 10, f"User: {st.session_state.username}", ln=True)
+    pdf.cell(0, 10, f"Company / Société: {company}", ln=True)
+    pdf.cell(0, 10, f"User / Utilisateur: {st.session_state.username}", ln=True)
     pdf.cell(0, 10, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
     pdf.cell(0, 10, f"App: LabT", ln=True)
     pdf.ln(10)
     pdf.multi_cell(0, 8, content_text)
+
     pdf_file = f"{title}_{st.session_state.username}.pdf"
     pdf.output(pdf_file)
     return pdf_file
@@ -147,59 +124,63 @@ def offer_pdf_actions(pdf_file):
 # Linéarité
 # -------------------------------
 def linearity_page():
-    st.header("📈 Linearity Curve / Courbe de linéarité")
-    st.write(f"You are logged in as / Vous êtes connecté en tant que **{st.session_state.username}**")
-    conc_input = st.text_input("Known concentrations (comma-separated) / Concentrations connues (séparées par des virgules)", key="conc_input")
-    resp_input = st.text_input("Responses (comma-separated) / Réponses (séparées par des virgules)", key="resp_input")
-    unknown_type = st.selectbox("Unknown type / Type inconnu:", ["Concentration unknown", "Concentration inconnue", "Signal unknown", "Signal inconnu"], key="unknown_type")
-    unknown_value = st.number_input("Unknown value / Valeur inconnue:", value=0.0, step=0.1, key="unknown_value")
-    unit = st.selectbox("Unit / Unité:", ["µg/mL", "mg/L", "g/L"], index=0, key="unit")
+    st.header("📈 Linearity / Courbe de linéarité")
+    st.write(f"You are logged in as / Vous êtes connecté en tant que: **{st.session_state.username}**")
+
+    if "unit" not in st.session_state:
+        st.session_state.unit = "µg/mL"
+
+    conc_input = st.text_input("Known concentrations (comma separated) / Concentrations connues :", key="conc_input")
+    resp_input = st.text_input("Responses (comma separated) / Réponses :", key="resp_input")
+    unknown_type = st.selectbox("Unknown type / Type d'inconnu :", ["Concentration unknown / Concentration inconnue", "Signal unknown / Signal inconnu"], key="unknown_type")
+    unknown_value = st.number_input("Unknown value / Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
+    unit = st.selectbox("Unit / Unité :", ["µg/mL", "mg/L", "g/L"], index=0, key="unit_select")
     st.session_state.unit = unit
-    company_name = st.text_input("Company name for PDF report / Nom de la compagnie pour le rapport PDF :", value="", key="company_name")
+    company_name = st.text_input("Company name for PDF / Nom de la compagnie pour le PDF :", value="", key="company_name")
 
     if conc_input and resp_input:
         try:
             conc = np.array([float(x.strip()) for x in conc_input.split(",") if x.strip()])
             resp = np.array([float(x.strip()) for x in resp_input.split(",") if x.strip()])
             if len(conc) != len(resp) or len(conc) == 0:
-                st.warning("Lists must have same length / Les listes doivent avoir la même taille")
+                st.warning("Lists must be same size / Les listes doivent avoir la même taille")
                 return
+
             slope, intercept = np.polyfit(conc, resp, 1)
             r2 = np.corrcoef(conc, resp)[0,1]**2
-            eq = f"y = {slope:.4f}x + {intercept:.4f} (R²={r2:.4f})"
+            eq = f"y = {slope:.4f}x + {intercept:.4f} (R² = {r2:.4f})"
+
             st.session_state.slope = slope
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
-            fig.add_trace(go.Scatter(x=conc, y=slope*conc+intercept, mode="lines", name=f"Line ({eq})"))
-            fig.update_layout(xaxis_title=f"Concentration ({unit})", yaxis_title="Signal", title="Linearity Curve / Courbe de linéarité")
+            fig.add_trace(go.Scatter(x=conc, y=slope*conc+intercept, mode="lines", name=f"Fit ({eq})"))
+            fig.update_layout(xaxis_title=f"Concentration ({unit})", yaxis_title="Signal", title="Linearity / Courbe de linéarité")
             st.plotly_chart(fig)
             st.success(f"Equation / Équation: {eq}")
 
-            # Calcul inconnu
             if slope != 0:
-                if unknown_type in ["Concentration unknown", "Concentration inconnue"]:
-                    result = (unknown_value - intercept)/slope
-                    st.info(f"Concentration unknown / Concentration inconnue = {result:.4f} {unit}")
+                if "Concentration" in unknown_type:
+                    result = (unknown_value - intercept) / slope
+                    st.info(f"Concentration unknown = {result:.4f} {unit}")
                 else:
-                    result = slope*unknown_value + intercept
-                    st.info(f"Signal unknown / Signal inconnu = {result:.4f}")
+                    result = slope * unknown_value + intercept
+                    st.info(f"Signal unknown = {result:.4f}")
 
-            # Export PDF
             def export_pdf_linearity():
                 content_text = f"Linearity curve:\nEquation: {eq}\nUnknown type: {unknown_type}\nUnknown value: {unknown_value}\nResult: {result:.4f} {unit if 'Concentration' in unknown_type else ''}"
                 pdf_file = generate_pdf("Linearity_Report", content_text, company_name)
                 offer_pdf_actions(pdf_file)
 
-            st.button("Export PDF / Exporter le rapport PDF", on_click=export_pdf_linearity)
+            st.button("Export PDF / Exporter PDF", on_click=export_pdf_linearity)
 
         except Exception as e:
-            st.error(f"Error in calculation / Erreur dans les calculs: {e}")
+            st.error(f"Error in calculation / Erreur dans les calculs : {e}")
 
     st.button("⬅️ Logout / Déconnexion", on_click=logout)
 
 # -------------------------------
-# S/N
+# S/N page
 # -------------------------------
 def calculate_sn(df):
     signal_peak = df["signal"].max()
@@ -210,92 +191,86 @@ def calculate_sn(df):
     noise_usp = baseline["signal"].std()
     sn_usp = signal_peak / noise_usp
 
-    lod = 3*noise
-    loq = 10*noise
+    lod = 3 * noise
+    loq = 10 * noise
 
     return sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp
 
 def sn_page():
-    st.header("📊 S/N Calculation / Calcul S/N")
-    st.write(f"You are logged in as / Vous êtes connecté en tant que **{st.session_state.username}**")
-    company_name = st.text_input("Company name for PDF report / Nom de la compagnie pour le rapport PDF :", value="", key="company_name_sn")
-    uploaded_file = st.file_uploader("Upload chromatogram (CSV) / Téléverser un chromatogramme (CSV)", type=["csv"], key="sn_upload")
+    st.header("📊 Signal/Noise Analysis / Calcul S/N")
+    st.write(f"You are logged in as / Vous êtes connecté en tant que: **{st.session_state.username}**")
+    company_name = st.text_input("Company name for PDF / Nom de la compagnie :", value="", key="company_name_sn")
+
+    uploaded_file = st.file_uploader("Upload chromatogram CSV / Téléverser un chromatogramme CSV", type=["csv"], key="sn_upload")
 
     if uploaded_file:
         try:
-            df = pd.read_csv(uploaded_file)
+            df = pd.read_csv(uploaded_file, engine='python')
             df.columns = [c.strip().lower() for c in df.columns]
+
             if "time" not in df.columns or "signal" not in df.columns:
-                st.error("CSV must contain columns: Time and Signal / CSV doit contenir les colonnes: Time et Signal")
+                st.error("CSV must contain columns: Time and Signal / CSV doit contenir les colonnes : Time et Signal")
                 return
+
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df["time"], y=df["signal"], mode="lines", name="Signal"))
             fig.update_layout(xaxis_title="Time / Temps", yaxis_title="Signal", title="Chromatogram / Chromatogramme")
             st.plotly_chart(fig)
 
             sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp = calculate_sn(df)
-            st.success(f"S/N ratio = {sn_ratio:.2f}")
-            st.info(f"USP S/N = {sn_usp:.2f} (baseline noise / bruit baseline = {noise_usp:.4f})")
+            st.success(f"S/N = {sn_ratio:.2f}")
+            st.info(f"USP S/N = {sn_usp:.2f} (baseline noise = {noise_usp:.4f})")
             st.info(f"LOD = {lod:.4f}, LOQ = {loq:.4f}")
 
-            # Convert LOD/LOQ in concentration if slope exists
-            if st.session_state.slope:
-                lod_conc = lod / st.session_state.slope
-                loq_conc = loq / st.session_state.slope
+            if 'slope' in st.session_state and st.session_state.slope != 0:
                 sn_conc = sn_ratio / st.session_state.slope
                 sn_usp_conc = sn_usp / st.session_state.slope
                 st.info(f"S/N in concentration = {sn_conc:.4f} {st.session_state.unit}")
                 st.info(f"USP S/N in concentration = {sn_usp_conc:.4f} {st.session_state.unit}")
-                st.info(f"LOD in concentration = {lod_conc:.4f} {st.session_state.unit}")
-                st.info(f"LOQ in concentration = {loq_conc:.4f} {st.session_state.unit}")
 
-            # Export PDF
             def export_pdf_sn():
-                content_text = f"""USP Signal to Noise Analysis / Analyse USP S/N:
+                content_text = f"""USP Signal to Noise Analysis:
 Signal max: {signal_peak}
 Noise: {noise:.4f}
 S/N ratio: {sn_ratio:.2f}
 USP S/N: {sn_usp:.2f}
 LOD: {lod:.4f}, LOQ: {loq:.4f}
-S/N in concentration: {sn_conc:.4f if st.session_state.slope else 'N/A'} {st.session_state.unit}
-USP S/N in concentration: {sn_usp_conc:.4f if st.session_state.slope else 'N/A'} {st.session_state.unit}
-LOD in concentration: {lod_conc:.4f if st.session_state.slope else 'N/A'} {st.session_state.unit}
-LOQ in concentration: {loq_conc:.4f if st.session_state.slope else 'N/A'} {st.session_state.unit}"""
+S/N in concentration: {sn_conc:.4f if 'sn_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}
+USP S/N in concentration: {sn_usp_conc:.4f if 'sn_usp_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}"""
                 pdf_file = generate_pdf("SN_Report", content_text, company_name)
                 offer_pdf_actions(pdf_file)
 
-            st.button("Export PDF / Exporter le rapport PDF", on_click=export_pdf_sn)
+            st.button("Export PDF / Exporter PDF", on_click=export_pdf_sn)
 
         except Exception as e:
-            st.error(f"Error reading CSV / Erreur de lecture CSV: {e}")
+            st.error(f"Error reading CSV / Erreur de lecture CSV : {e}")
 
     st.button("⬅️ Logout / Déconnexion", on_click=logout)
 
 # -------------------------------
-# Menu principal
+# Main menu
 # -------------------------------
 def main_menu():
     role = st.session_state.role
     if role == "admin":
         manage_users()
     elif role == "user":
-        choice = st.selectbox(
-            "Choose an option:" if st.session_state.language=="EN" else "Choisir une option :",
-            ["Linearity Curve" if st.session_state.language=="EN" else "Courbe de linéarité",
-             "S/N Calculation" if st.session_state.language=="EN" else "Calcul S/N"]
-        )
-        if choice in ["Linearity Curve", "Courbe de linéarité"]:
+        choice = st.selectbox("Choose option / Choisir une option :", ["Linearity / Courbe de linéarité", "Signal/Noise / Calcul S/N"])
+        if "Linearity" in choice:
             linearity_page()
         else:
             sn_page()
     else:
-        st.error("Unknown role / Rôle inconnu")
+        st.error("Unknown role / Rôle inconnu.")
 
 # -------------------------------
-# Lancement
+# App start
 # -------------------------------
 if __name__ == "__main__":
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
     if not st.session_state.logged_in:
         login()
     else:
         main_menu()
+``
