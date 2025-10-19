@@ -31,6 +31,7 @@ def save_users(users):
 # -------------------------------
 def logout():
     st.session_state.logged_in = False
+    st.session_state.current_page = None
 
 def login():
     users = load_users()
@@ -44,8 +45,9 @@ def login():
             st.session_state.logged_in = True
             st.session_state.username = selected_user
             st.session_state.role = users[selected_user]["role"]
+            # définir la page par défaut selon le rôle
+            st.session_state.current_page = "manage_users" if st.session_state.role == "admin" else "linearity"
             st.success("Connexion réussie ✅")
-            # ❌ Pas de st.experimental_rerun()
         else:
             st.error("Nom d’utilisateur ou mot de passe incorrect ❌")
 
@@ -92,7 +94,7 @@ def manage_users():
         logout()
 
 # -------------------------------
-# Page Linéarité améliorée
+# Page Linéarité
 # -------------------------------
 def linearity_page():
     st.header("📈 Courbe de linéarité")
@@ -102,7 +104,9 @@ def linearity_page():
 
     unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
     unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
-    unit = st.selectbox("Unité :", ["mg/L", "µg/mL", "g/L", "absorbance", "aire"], key="unit")
+    
+    # ⚡ Unités uniquement pour concentration
+    unit = st.selectbox("Unité :", ["mg/L", "µg/mL", "g/L"], key="unit")
 
     try:
         conc = np.array([float(x.strip()) for x in conc_input.split(",") if x.strip()])
@@ -132,9 +136,9 @@ def linearity_page():
             if unknown_type == "Concentration inconnue":
                 result = (unknown_value - intercept) / slope
                 st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
-            else:
+            else:  # signal inconnu
                 result = slope * unknown_value + intercept
-                st.info(f"🔹 Signal inconnu = {result:.4f} {unit}")
+                st.info(f"🔹 Signal inconnu = {result:.4f}")  # pas d'unité
 
     except Exception as e:
         st.error(f"Erreur dans les calculs : {e}")
@@ -143,7 +147,7 @@ def linearity_page():
         logout()
 
 # -------------------------------
-# Page S/N améliorée
+# Page S/N
 # -------------------------------
 def sn_page():
     st.header("📊 Calcul du rapport signal/bruit (S/N)")
@@ -153,7 +157,7 @@ def sn_page():
     if uploaded_file is not None:
         try:
             df = pd.read_csv(uploaded_file)
-            df.columns = [c.lower() for c in df.columns]
+            df.columns = [c.strip().lower() for c in df.columns]
 
             if "time" not in df.columns or "signal" not in df.columns:
                 st.error("CSV doit contenir les colonnes : Time et Signal")
@@ -167,8 +171,7 @@ def sn_page():
                               title="Chromatogramme")
             st.plotly_chart(fig)
 
-            # Option de calcul S/N
-            noise_window = st.slider("Fenêtre pour le bruit (%)", min_value=5, max_value=50, value=20, step=5, key="noise_window")
+            # Calcul S/N
             noise = df["signal"].std()
             signal_peak = df["signal"].max()
             sn_ratio = signal_peak / noise
@@ -183,22 +186,28 @@ def sn_page():
         logout()
 
 # -------------------------------
-# Menu principal
+# Menu principal avec navigation persistante
 # -------------------------------
 def main_menu():
     role = st.session_state.role
-    st.title("🧪 LabT - Menu principal")
 
     if role == "admin":
-        manage_users()
+        st.session_state.current_page = "manage_users"
     elif role == "user":
+        # Menu utilisateur
         choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"], key="main_choice")
-        if choice == "Courbe de linéarité":
-            linearity_page()
-        else:
-            sn_page()
+        st.session_state.current_page = "linearity" if choice == "Courbe de linéarité" else "sn"
     else:
         st.error("Rôle inconnu.")
+
+    # Affichage selon la page active
+    page = st.session_state.current_page
+    if page == "manage_users":
+        manage_users()
+    elif page == "linearity":
+        linearity_page()
+    elif page == "sn":
+        sn_page()
 
 # -------------------------------
 # Lancement
@@ -211,6 +220,8 @@ if __name__ == "__main__":
         st.session_state.username = ""
     if "role" not in st.session_state:
         st.session_state.role = ""
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = None
 
     # Affichage selon session
     if not st.session_state.logged_in:
