@@ -1,5 +1,5 @@
-streamlit==1.24.1
+streamlit==1.25.0
 pandas==1.5.3
-numpy==1.21.6
-plotly==5.15.0
+numpy==1.24.4
+plotly==5.16.0
 fpdf==1.7.2
