@@ -100,12 +100,12 @@ def linearity_page():
     st.header("📈 Courbe de linéarité")
 
     conc_input = st.text_input("Concentrations connues (séparées par des virgules)", key="conc_input")
-    resp_input = st.text_input("Réponses (absorbance ou aire, séparées par des virgules)", key="resp_input")
+    resp_input = st.text_input("Réponses (séparées par des virgules)", key="resp_input")
 
     unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
     unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
     
-    # ⚡ Unités uniquement pour concentration
+    # Unités uniquement pour concentration
     unit = st.selectbox("Unité :", ["mg/L", "µg/mL", "g/L"], key="unit")
 
     try:
@@ -136,7 +136,7 @@ def linearity_page():
             if unknown_type == "Concentration inconnue":
                 result = (unknown_value - intercept) / slope
                 st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
-            else:  # signal inconnu
+            else:
                 result = slope * unknown_value + intercept
                 st.info(f"🔹 Signal inconnu = {result:.4f}")  # pas d'unité
 
@@ -147,7 +147,7 @@ def linearity_page():
         logout()
 
 # -------------------------------
-# Page S/N
+# Page S/N avec lecture CSV robuste
 # -------------------------------
 def sn_page():
     st.header("📊 Calcul du rapport signal/bruit (S/N)")
@@ -156,7 +156,9 @@ def sn_page():
 
     if uploaded_file is not None:
         try:
-            df = pd.read_csv(uploaded_file)
+            # Lecture automatique du séparateur
+            df = pd.read_csv(uploaded_file, sep=None, engine='python')
+            # Nettoyer noms de colonnes
             df.columns = [c.strip().lower() for c in df.columns]
 
             if "time" not in df.columns or "signal" not in df.columns:
@@ -166,9 +168,7 @@ def sn_page():
             # Graphique
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=df["time"], y=df["signal"], mode="lines", name="Signal"))
-            fig.update_layout(xaxis_title="Temps",
-                              yaxis_title="Signal",
-                              title="Chromatogramme")
+            fig.update_layout(xaxis_title="Temps", yaxis_title="Signal", title="Chromatogramme")
             st.plotly_chart(fig)
 
             # Calcul S/N
@@ -194,16 +194,8 @@ def main_menu():
     if role == "admin":
         st.session_state.current_page = "manage_users"
     elif role == "user":
-        # Menu utilisateur : la page change immédiatement selon la sélection
-        choice = st.selectbox(
-            "Choisir une option :", 
-            ["Courbe de linéarité", "Calcul S/N"], 
-            key="main_choice"
-        )
-        if choice == "Courbe de linéarité":
-            st.session_state.current_page = "linearity"
-        else:
-            st.session_state.current_page = "sn"
+        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"], key="main_choice")
+        st.session_state.current_page = "linearity" if choice == "Courbe de linéarité" else "sn"
     else:
         st.error("Rôle inconnu.")
 
@@ -220,7 +212,6 @@ def main_menu():
 # Lancement
 # -------------------------------
 if __name__ == "__main__":
-    # Initialisation sécurisée
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
     if "username" not in st.session_state:
@@ -230,7 +221,6 @@ if __name__ == "__main__":
     if "current_page" not in st.session_state:
         st.session_state.current_page = None
 
-    # Affichage selon session
     if not st.session_state.logged_in:
         login()
     else:
