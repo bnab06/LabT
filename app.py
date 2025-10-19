@@ -31,7 +31,6 @@ def save_users(users):
 # -------------------------------
 def logout():
     st.session_state.logged_in = False
-    st.experimental_rerun()
 
 def login():
     users = load_users()
@@ -40,15 +39,13 @@ def login():
     selected_user = st.selectbox("Choisir un utilisateur :", list(users.keys()))
     password = st.text_input("Mot de passe :", type="password")
 
-    login_clicked = st.button("Se connecter", key="login_btn")
-
-    if login_clicked:
+    if st.button("Se connecter", key="login_btn"):
         if selected_user in users and users[selected_user]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = selected_user
             st.session_state.role = users[selected_user]["role"]
             st.success("Connexion réussie ✅")
-            st.experimental_rerun()
+            # ❌ Pas de st.experimental_rerun()
         else:
             st.error("Nom d’utilisateur ou mot de passe incorrect ❌")
 
@@ -207,7 +204,7 @@ def main_menu():
 # Lancement
 # -------------------------------
 if __name__ == "__main__":
-    # ✅ Initialisation sécurisée des clés de session
+    # Initialisation sécurisée
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
     if "username" not in st.session_state:
@@ -215,6 +212,7 @@ if __name__ == "__main__":
     if "role" not in st.session_state:
         st.session_state.role = ""
 
+    # Affichage selon session
     if not st.session_state.logged_in:
         login()
     else:
