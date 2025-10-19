@@ -117,14 +117,9 @@ def generate_pdf(title, content_text, company=""):
     return pdf_file
 
 def offer_pdf_actions(pdf_file):
-    # Téléchargement
     with open(pdf_file, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
     st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Télécharger le PDF</a>', unsafe_allow_html=True)
-    # Impression
-    st.markdown(f'<a href="javascript:window.print()">🖨️ Imprimer le PDF</a>', unsafe_allow_html=True)
-    # Partage
-    st.markdown(f'<p>🔗 Partager le fichier : {pdf_file}</p>', unsafe_allow_html=True)
 
 # -------------------------------
 # Linéarité
@@ -151,6 +146,9 @@ def linearity_page():
             slope, intercept = np.polyfit(conc, resp, 1)
             r2 = np.corrcoef(conc, resp)[0,1]**2
             eq = f"y = {slope:.4f}x + {intercept:.4f} (R² = {r2:.4f})"
+
+            st.session_state.slope = slope
+            st.session_state.unit = unit
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
@@ -183,12 +181,18 @@ def linearity_page():
 # S/N
 # -------------------------------
 def calculate_sn(df):
-    noise = df["signal"].std()
     signal_peak = df["signal"].max()
+    noise = df["signal"].std()
     sn_ratio = signal_peak / noise
+
+    baseline = df.iloc[:max(1, int(0.1*len(df)))]
+    noise_usp = baseline["signal"].std()
+    sn_usp = signal_peak / noise_usp
+
     lod = 3 * noise
     loq = 10 * noise
-    return sn_ratio, lod, loq, signal_peak, noise
+
+    return sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp
 
 def sn_page():
     st.header("📊 Calcul du rapport signal/bruit (S/N)")
@@ -211,12 +215,26 @@ def sn_page():
             fig.update_layout(xaxis_title="Temps", yaxis_title="Signal", title="Chromatogramme")
             st.plotly_chart(fig)
 
-            sn_ratio, lod, loq, signal_peak, noise = calculate_sn(df)
+            sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp = calculate_sn(df)
             st.success(f"Rapport S/N = {sn_ratio:.2f}")
+            st.info(f"USP S/N = {sn_usp:.2f} (bruit baseline = {noise_usp:.4f})")
             st.info(f"LOD = {lod:.4f}, LOQ = {loq:.4f}")
 
+            if 'slope' in st.session_state and st.session_state.slope != 0:
+                sn_conc = sn_ratio / st.session_state.slope
+                sn_usp_conc = sn_usp / st.session_state.slope
+                st.info(f"S/N en concentration: {sn_conc:.4f} {st.session_state.unit}")
+                st.info(f"USP S/N en concentration: {sn_usp_conc:.4f} {st.session_state.unit}")
+
             def export_pdf_sn():
-                content_text = f"S/N Analysis:\nSignal max: {signal_peak}\nNoise: {noise:.4f}\nS/N: {sn_ratio:.2f}\nLOD: {lod:.4f}, LOQ: {loq:.4f}"
+                content_text = f"""USP Signal to Noise Analysis:
+Signal max: {signal_peak}
+Noise: {noise:.4f}
+S/N ratio: {sn_ratio:.2f}
+USP S/N: {sn_usp:.2f}
+LOD: {lod:.4f}, LOQ: {loq:.4f}
+S/N en concentration: {sn_conc:.4f if 'sn_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}
+USP S/N en concentration: {sn_usp_conc:.4f if 'sn_usp_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}"""
                 pdf_file = generate_pdf("SN_Report", content_text, company_name)
                 offer_pdf_actions(pdf_file)
 
@@ -224,8 +242,6 @@ def sn_page():
 
         except Exception as e:
             st.error(f"Erreur de lecture CSV : {e}")
-    else:
-        st.info("Veuillez téléverser un fichier CSV contenant les colonnes Time et Signal.")
 
     st.button("⬅️ Déconnexion", on_click=logout)
 
@@ -234,20 +250,16 @@ def sn_page():
 # -------------------------------
 def main_menu():
     role = st.session_state.role
-
     if role == "admin":
-        st.session_state.current_page = "manage_users"
-    elif role == "user":
-        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"], key="main_choice")
-        st.session_state.current_page = "linearity" if choice == "Courbe de linéarité" else "sn"
-
-    page = st.session_state.current_page
-    if page == "manage_users":
         manage_users()
-    elif page == "linearity":
-        linearity_page()
-    elif page == "sn":
-        sn_page()
+    elif role == "user":
+        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"])
+        if choice == "Courbe de linéarité":
+            linearity_page()
+        else:
+            sn_page()
+    else:
+        st.error("Rôle inconnu.")
 
 # -------------------------------
 # Lancement
@@ -255,13 +267,6 @@ def main_menu():
 if __name__ == "__main__":
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
-    if "username" not in st.session_state:
-        st.session_state.username = ""
-    if "role" not in st.session_state:
-        st.session_state.role = ""
-    if "current_page" not in st.session_state:
-        st.session_state.current_page = None
-
     if not st.session_state.logged_in:
         login()
     else:
