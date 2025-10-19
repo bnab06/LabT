@@ -1,14 +1,5 @@
 {
-    "admin": {
-        "password": "admin",
-        "role": "admin"
-    },
-    "bb": {
-        "password": "bb",
-        "role": "user"
-    },
-    "user": {
-        "password": "user",
-        "role": "user"
-    }
+    "admin": {"password": "admin123", "role": "admin"},
+    "bb": {"password": "bb123", "role": "user"},
+    "user": {"password": "user123", "role": "user"}
 }

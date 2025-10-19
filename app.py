@@ -2,11 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import json
-import plotly.graph_objects as go
-import os
 from fpdf import FPDF
 from datetime import datetime
+import os
 import base64
+import plotly.graph_objects as go
 
 USERS_FILE = "users.json"
 
@@ -18,7 +18,7 @@ def load_users():
         users = {
             "admin": {"password": "admin", "role": "admin"},
             "bb": {"password": "bb", "role": "user"},
-            "user": {"password": "user", "role": "user"},
+            "user": {"password": "user", "role": "user"}
         }
         with open(USERS_FILE, "w") as f:
             json.dump(users, f)
@@ -30,7 +30,7 @@ def save_users(users):
         json.dump(users, f, indent=4)
 
 # -------------------------------
-# Connexion et session
+# Login / Logout
 # -------------------------------
 def logout():
     st.session_state.logged_in = False
@@ -54,7 +54,7 @@ def login():
     st.button("Se connecter", on_click=login_action, args=(selected_user, password))
 
 # -------------------------------
-# Page admin : gestion des utilisateurs
+# Admin : gestion utilisateurs
 # -------------------------------
 def validate_user_action(action, username, password, role):
     if not username or (action != "Supprimer" and not password):
@@ -111,7 +111,6 @@ def generate_pdf(title, content_text, company=""):
     pdf.cell(0, 10, f"Log: LabT", ln=True)
     pdf.ln(10)
     pdf.multi_cell(0, 8, content_text)
-
     pdf_file = f"{title}_{st.session_state.username}.pdf"
     pdf.output(pdf_file)
     return pdf_file
@@ -152,7 +151,7 @@ def linearity_page():
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
-            fig.add_trace(go.Scatter(x=conc, y=slope * conc + intercept, mode="lines", name=f"Droite ({eq})"))
+            fig.add_trace(go.Scatter(x=conc, y=slope*conc+intercept, mode="lines", name=f"Droite ({eq})"))
             fig.update_layout(xaxis_title=f"Concentration ({unit})", yaxis_title="Signal", title="Courbe de linéarité")
             st.plotly_chart(fig)
             st.success(f"Équation : {eq}")
@@ -162,7 +161,7 @@ def linearity_page():
                     result = (unknown_value - intercept) / slope
                     st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
                 else:
-                    result = slope * unknown_value + intercept
+                    result = slope*unknown_value + intercept
                     st.info(f"🔹 Signal inconnu = {result:.4f}")
 
             def export_pdf_linearity():
@@ -178,74 +177,6 @@ def linearity_page():
     st.button("⬅️ Déconnexion", on_click=logout)
 
 # -------------------------------
-# S/N
-# -------------------------------
-def calculate_sn(df):
-    signal_peak = df["signal"].max()
-    noise = df["signal"].std()
-    sn_ratio = signal_peak / noise
-
-    baseline = df.iloc[:max(1, int(0.1*len(df)))]
-    noise_usp = baseline["signal"].std()
-    sn_usp = signal_peak / noise_usp
-
-    lod = 3 * noise
-    loq = 10 * noise
-
-    return sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp
-
-def sn_page():
-    st.header("📊 Calcul du rapport signal/bruit (S/N)")
-    st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
-    company_name = st.text_input("Nom de la compagnie pour le rapport PDF :", value="", key="company_name_sn")
-
-    uploaded_file = st.file_uploader("Téléverser un chromatogramme (CSV)", type=["csv"], key="sn_upload")
-
-    if uploaded_file:
-        try:
-            df = pd.read_csv(uploaded_file, sep=None, engine='python')
-            df.columns = [c.strip().lower() for c in df.columns]
-
-            if "time" not in df.columns or "signal" not in df.columns:
-                st.error("CSV doit contenir les colonnes : Time et Signal")
-                return
-
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df["time"], y=df["signal"], mode="lines", name="Signal"))
-            fig.update_layout(xaxis_title="Temps", yaxis_title="Signal", title="Chromatogramme")
-            st.plotly_chart(fig)
-
-            sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp = calculate_sn(df)
-            st.success(f"Rapport S/N = {sn_ratio:.2f}")
-            st.info(f"USP S/N = {sn_usp:.2f} (bruit baseline = {noise_usp:.4f})")
-            st.info(f"LOD = {lod:.4f}, LOQ = {loq:.4f}")
-
-            if 'slope' in st.session_state and st.session_state.slope != 0:
-                sn_conc = sn_ratio / st.session_state.slope
-                sn_usp_conc = sn_usp / st.session_state.slope
-                st.info(f"S/N en concentration: {sn_conc:.4f} {st.session_state.unit}")
-                st.info(f"USP S/N en concentration: {sn_usp_conc:.4f} {st.session_state.unit}")
-
-            def export_pdf_sn():
-                content_text = f"""USP Signal to Noise Analysis:
-Signal max: {signal_peak}
-Noise: {noise:.4f}
-S/N ratio: {sn_ratio:.2f}
-USP S/N: {sn_usp:.2f}
-LOD: {lod:.4f}, LOQ: {loq:.4f}
-S/N en concentration: {sn_conc:.4f if 'sn_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}
-USP S/N en concentration: {sn_usp_conc:.4f if 'sn_usp_conc' in locals() else 'N/A'} {st.session_state.unit if 'unit' in st.session_state else ''}"""
-                pdf_file = generate_pdf("SN_Report", content_text, company_name)
-                offer_pdf_actions(pdf_file)
-
-            st.button("Exporter le rapport PDF", on_click=export_pdf_sn)
-
-        except Exception as e:
-            st.error(f"Erreur de lecture CSV : {e}")
-
-    st.button("⬅️ Déconnexion", on_click=logout)
-
-# -------------------------------
 # Menu principal
 # -------------------------------
 def main_menu():
@@ -257,7 +188,7 @@ def main_menu():
         if choice == "Courbe de linéarité":
             linearity_page()
         else:
-            sn_page()
+            st.info("La page S/N sera ajoutée ici ultérieurement.")
     else:
         st.error("Rôle inconnu.")
 
