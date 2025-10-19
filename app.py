@@ -1,160 +1,272 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-from fpdf import FPDF
-from datetime import datetime
-import json
-import matplotlib.pyplot as plt
 
-# Initialisation de session_state
-if "logged_in" not in st.session_state:
+# --- Initialisation des variables de session ---
+if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
-if "username" not in st.session_state:
-    st.session_state.username = ""
-if "role" not in st.session_state:
-    st.session_state.role = ""
-if "current_page" not in st.session_state:
-    st.session_state.current_page = "login"
-if "unit" not in st.session_state:
+if 'user' not in st.session_state:
+    st.session_state.user = ""
+if 'unit' not in st.session_state:
     st.session_state.unit = ""
-# Chargement des utilisateurs depuis un fichier JSON
-def load_users():
-    try:
-        with open("users.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
+if 'language' not in st.session_state:
+    st.session_state.language = 'English'  # langue par défaut
 
-def save_users(users):
-    with open("users.json", "w") as f:
-        json.dump(users, f, indent=4)
+# --- Liste des utilisateurs ---
+# Les utilisateurs peuvent être en majuscules ou minuscules sans effet
+USERS = {
+    "admin": "admin123",
+    "user1": "pass1"
+}
 
-# Action de login insensible à la casse
-def login_action(selected_user, password):
-    users = load_users()
-    selected_user_lower = selected_user.lower()
-    matched_user = None
-    for user in users:
-        if user.lower() == selected_user_lower:
-            matched_user = user
-            break
-
-    if matched_user and users[matched_user]["password"] == password:
+def login_action(username, password):
+    """Vérifie le login sans rerun automatique"""
+    username_lower = username.lower()
+    if username_lower in USERS and password == USERS[username_lower]:
         st.session_state.logged_in = True
-        st.session_state.username = matched_user
-        st.session_state.role = users[matched_user]["role"]
-        st.session_state.current_page = "manage_users" if st.session_state.role == "admin" else "linearity"
-        st.success(f"Connexion réussie ✅ / You are logged in as {matched_user}")
-        st.experimental_rerun()
+        st.session_state.user = username_lower
+        st.success(f"Connexion réussie ✅ / You are logged in as {username_lower}")
     else:
-        st.error("Nom d’utilisateur ou mot de passe incorrect ❌ / Wrong username or password")
+        st.error("Nom d'utilisateur ou mot de passe incorrect / Wrong username or password")
 
-# Page login
-def login_page():
-    st.title("LabT App / Application LabT")
-    users = load_users()
+# --- Affichage du formulaire de login ---
+if not st.session_state.logged_in:
+    st.title("App: LabT")
+    st.subheader("Connexion / Login")
+    
     selected_user = st.selectbox(
-        "Choisir un utilisateur / Choose user:", 
-        sorted(list(users.keys()), key=lambda x: x.lower()), 
-        key="login_user"
+        "Choisir un utilisateur / Choose user:",
+        list(USERS.keys())
     )
-    password = st.text_input("Mot de passe / Password:", type="password", key="login_pass")
+    password = st.text_input("Mot de passe / Password:", type="password")
+    
     if st.button("Se connecter / Login"):
         login_action(selected_user, password)
+else:
+    st.write(f"Bienvenue / Welcome, {st.session_state.user} !")
+    st.write("Vous êtes connecté en tant que admin / You are logged in as admin")
+    # Ici, on pourra afficher le menu principal de l'app
+# --- Partie 2 : Menu principal et options ---
+if st.session_state.logged_in:
 
-# Navigation
-if not st.session_state.logged_in:
-    login_page()
+    st.title("App: LabT")
+
+    # --- Choix de la langue ---
+    language = st.selectbox(
+        "Language / Langue:",
+        ["English", "Français"],
+        index=0 if st.session_state.language == "English" else 1,
+        key="lang_select"
+    )
+    st.session_state.language = language
+
+    # --- Menu principal bilingue ---
+    menu_options = {
+        "English": ["Unknown calculation", "S/N Analysis", "Linearity", "Admin", "Logout"],
+        "Français": ["Calcul inconnu", "Analyse S/N", "Linéarité", "Admin", "Déconnexion"]
+    }
+
+    selected_option = st.radio(
+        "Menu:",
+        menu_options[st.session_state.language]
+    )
+
+    # --- Admin panel options bilingual ---
+    if selected_option in ["Admin", "Déconnexion"]:
+        if selected_option in ["Admin"]:
+            st.subheader("Admin Panel / Panneau Admin")
+            st.write("You can add or remove users / Vous pouvez ajouter ou supprimer des utilisateurs")
+            # Ajout d'un utilisateur
+            new_user = st.text_input("Add user / Ajouter un utilisateur:")
+            new_password = st.text_input("Password / Mot de passe:", type="password")
+            if st.button("Add / Ajouter"):
+                if new_user and new_password:
+                    USERS[new_user.lower()] = new_password
+                    st.success(f"User {new_user} added ✅")
+                else:
+                    st.error("Please enter username and password / Veuillez entrer nom et mot de passe")
+            
+            # Suppression d'un utilisateur
+            del_user = st.text_input("Delete user / Supprimer un utilisateur:")
+            if st.button("Delete / Supprimer"):
+                if del_user.lower() in USERS:
+                    del USERS[del_user.lower()]
+                    st.success(f"User {del_user} deleted ✅")
+                else:
+                    st.error("User not found / Utilisateur non trouvé")
+
+        # --- Déconnexion ---
+        if selected_option in ["Déconnexion", "Logout"]:
+            if st.button("Confirm / Confirmer"):
+                st.session_state.logged_in = False
+                st.session_state.user = ""
+                st.experimental_rerun()
+
+    # --- Options pour calculs / analyses ---
+    if selected_option in ["Unknown calculation", "Calcul inconnu"]:
+        st.subheader("Unknown calculation / Calcul inconnu")
+        # Ici on affichera les champs pour entrer les données
+        conc_unit = st.selectbox("Unit / Unité:", ["mg/mL", "µg/mL", "ppm"], key="unit")
+        st.session_state.unit = conc_unit
+
+    if selected_option in ["S/N Analysis", "Analyse S/N"]:
+        st.subheader("Signal-to-Noise Analysis / Analyse S/N")
+        sn_method = st.radio(
+            "Select method / Sélectionner méthode:",
+            ["Classical", "USP"],
+            index=0
+        )
+        st.write(f"Selected method: {sn_method}")
+
+    if selected_option in ["Linearity", "Linéarité"]:
+        st.subheader("Linearity Curve / Courbe de linéarité")
+        use_linearity = st.checkbox("Use linearity for S/N calculation / Utiliser la linéarité pour S/N")
+# --- Partie 3 : Calculs et génération PDF ---
+import io
+from fpdf import FPDF
+import numpy as np
+
+def calculate_unknown(concentration_values, signal_values):
+    """Calcul inconnu"""
+    if not concentration_values or not signal_values:
+        st.error("Please enter data / Veuillez entrer des données")
+        return None
+    conc_array = np.array(concentration_values)
+    sig_array = np.array(signal_values)
+    unknown_conc = np.mean(sig_array) / np.mean(conc_array)  # simplifié
+    return unknown_conc
+
+def calculate_sn(signal, noise, slope=None, use_linearity=False):
+    """Calcul S/N classique ou USP"""
+    if use_linearity and slope:
+        sn_conc = (signal / noise) / slope
+        return sn_conc
+    else:
+        return signal / noise
+
+def export_pdf(
+    unknown_conc, conc_unit, sn_value, sn_unit, company_name="LabT"
+):
+    if not company_name:
+        st.error("Please enter company name before generating PDF / Veuillez entrer le nom de l'entreprise")
+        return
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, f"App: {company_name}", ln=True, align="C")
+    pdf.ln(10)
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(0, 10, f"Unknown concentration: {unknown_conc:.4f} {conc_unit}", ln=True)
+    pdf.cell(0, 10, f"S/N value: {sn_value:.4f} {sn_unit}", ln=True)
+
+    # Save PDF to buffer
+    pdf_buffer = io.BytesIO()
+    pdf.output(pdf_buffer)
+    pdf_buffer.seek(0)
+    st.download_button("Download PDF / Télécharger PDF", pdf_buffer, file_name="LabT_Report.pdf")
+
+# --- Exemple d'utilisation ---
+if selected_option in ["Unknown calculation", "Calcul inconnu"]:
+    conc_input = st.text_area("Enter known concentrations / Entrer concentrations connues (comma-separated):")
+    sig_input = st.text_area("Enter signals / Entrer signaux (comma-separated):")
+    conc_list = [float(x) for x in conc_input.split(",") if x.strip()]
+    sig_list = [float(x) for x in sig_input.split(",") if x.strip()]
+    
+    if st.button("Calculate / Calculer"):
+        unknown_conc = calculate_unknown(conc_list, sig_list)
+        st.session_state.unknown_conc = unknown_conc
+        st.success(f"Unknown concentration: {unknown_conc:.4f} {st.session_state.unit}")
+
+if selected_option in ["S/N Analysis", "Analyse S/N"]:
+    signal_val = st.number_input("Signal / Signal:", value=0.0)
+    noise_val = st.number_input("Noise / Bruit:", value=0.0)
+    use_linearity = st.checkbox("Use linearity / Utiliser linéarité")
+    slope_val = st.number_input("Slope / Pente:", value=1.0)
+    
+    if st.button("Calculate S/N"):
+        sn_result = calculate_sn(signal_val, noise_val, slope_val, use_linearity)
+        st.session_state.sn_value = sn_result
+        st.success(f"S/N: {sn_result:.4f} {st.session_state.unit if 'unit' in st.session_state else ''}")
+
+if st.button("Generate PDF / Générer PDF"):
+    export_pdf(
+        st.session_state.get("unknown_conc", 0),
+        st.session_state.get("unit", ""),
+        st.session_state.get("sn_value", 0),
+        st.session_state.get("unit", ""),
+        company_name=st.text_input("Company name / Nom de l'entreprise:")
+    )
+# --- Partie 4 : Navigation et menu bilingue ---
+import streamlit as st
+
 def main_menu():
     st.title("LabT App / Application LabT")
-    if st.session_state.role == "admin":
-        menu_options = [
-            "Gérer les utilisateurs / Manage Users",
-            "Linéarité / Linearity",
-            "Calcul S/N classique / Classical S/N",
-            "Calcul S/N USP / USP S/N",
-        ]
-    else:
-        menu_options = [
-            "Linéarité / Linearity",
-            "Calcul S/N classique / Classical S/N",
-            "Calcul S/N USP / USP S/N",
-        ]
-
-    choice = st.selectbox("Menu principal / Main menu:", menu_options, key="main_menu")
-
-    if choice.startswith("Gérer les utilisateurs") or choice.startswith("Manage Users"):
-        manage_users_page()
-    elif choice.startswith("Linéarité") or choice.startswith("Linearity"):
-        linearity_page()
-    elif choice.startswith("Calcul S/N classique") or choice.startswith("Classical S/N"):
-        sn_classical_page()
-    elif choice.startswith("Calcul S/N USP") or choice.startswith("USP S/N"):
-        sn_usp_page()
-def manage_users_page():
-    st.subheader("Gestion des utilisateurs / User Management")
-    users = load_users()
-
-    action = st.radio("Action / Action:", ["Ajouter / Add", "Supprimer / Delete"])
     
-    if action.startswith("Ajouter") or action.startswith("Add"):
-        new_user = st.text_input("Nom d'utilisateur / Username:")
-        new_pass = st.text_input("Mot de passe / Password:", type="password")
-        role = st.selectbox("Rôle / Role:", ["admin", "user"])
-        if st.button("Valider / Submit"):
-            if new_user:
-                users[new_user] = {"password": new_pass, "role": role}
-                save_users(users)
-                st.success("Utilisateur ajouté ✅ / User added")
-            else:
-                st.error("Veuillez saisir un nom d'utilisateur / Please enter a username")
+    menu_options = {
+        "en": ["Unknown calculation", "S/N Analysis", "Admin", "Exit"],
+        "fr": ["Calcul inconnu", "Analyse S/N", "Admin", "Quitter"]
+    }
     
-    elif action.startswith("Supprimer") or action.startswith("Delete"):
-        user_to_delete = st.selectbox("Sélectionner l'utilisateur / Select user:", list(users.keys()))
-        if st.button("Supprimer / Delete"):
-            if user_to_delete in users:
-                del users[user_to_delete]
-                save_users(users)
-                st.success("Utilisateur supprimé ✅ / User deleted")
+    lang = st.session_state.get("lang", "en")
+    selected = st.selectbox(
+        "Select option / Sélectionner une option:",
+        menu_options[lang]
+    )
+    
+    st.session_state.current_page = selected
+    return selected
 
-def linearity_page():
-    st.subheader("Courbe de linéarité / Linearity curve")
-    st.info("Ici vous pouvez importer vos données CSV et tracer la courbe / Import CSV to plot curve")
-    uploaded_file = st.file_uploader("Importer CSV / Upload CSV", type=["csv"])
-    if uploaded_file:
-        df = pd.read_csv(uploaded_file)
-        st.dataframe(df.head())
-        # Option pour tracer la courbe de linéarité
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.iloc[:,0], y=df.iloc[:,1], mode='lines+markers'))
-        st.plotly_chart(fig)
-        st.session_state.slope, st.session_state.intercept = np.polyfit(df.iloc[:,0], df.iloc[:,1], 1)
+def previous_menu_button():
+    if st.session_state.get("current_page") not in [None, "Admin", "Quitter", "Exit"]:
+        if st.button("Back / Retour"):
+            st.session_state.current_page = None
+            st.experimental_rerun()
 
-def sn_classical_page():
-    st.subheader("S/N classique / Classical S/N")
-    st.info("Calcul S/N basé sur le bruit de fond")
-    # Ici ajouter calculs classiques de S/N
+def admin_menu():
+    st.subheader("Admin Panel / Panneau Admin")
+    lang = st.session_state.get("lang", "en")
+    actions = {
+        "en": ["Add user", "Delete user", "Logout"],
+        "fr": ["Ajouter utilisateur", "Supprimer utilisateur", "Se déconnecter"]
+    }
+    
+    choice = st.selectbox("Choose action / Choisir action:", actions[lang])
+    
+    if st.button("Execute / Exécuter"):
+        if choice in ["Add user", "Ajouter utilisateur"]:
+            st.info("Add user functionality / Ajouter utilisateur")
+        elif choice in ["Delete user", "Supprimer utilisateur"]:
+            st.info("Delete user functionality / Supprimer utilisateur")
+        elif choice in ["Logout", "Se déconnecter"]:
+            st.session_state.logged_in = False
+            st.session_state.current_page = None
+            st.experimental_rerun()
 
-def sn_usp_page():
-    st.subheader("S/N USP / USP S/N")
-    st.info("Calcul S/N selon USP, possibilité d'utiliser la courbe de linéarité")
-    # Ici ajouter calculs USP et LOD/LOQ
-    use_linearity = st.checkbox("Utiliser la courbe de linéarité / Use linearity curve")
-    if use_linearity:
-        st.write(f"Slope utilisée: {st.session_state.slope if 'slope' in st.session_state else 'N/A'}")
+# --- Main loop ---
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "lang" not in st.session_state:
+    st.session_state.lang = "en"
 
-def export_pdf():
-    st.subheader("Exporter le rapport / Export PDF")
-    company_name = st.text_input("Nom de l'entreprise / Company name:")
-    if not company_name:
-        st.error("Veuillez saisir le nom de l'entreprise avant d'exporter / Please enter company name")
-        return
-    if st.button("Générer PDF / Generate PDF"):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", "B", 16)
-        pdf.cell(0, 10, f"App: LabT", ln=True)
-        pdf.cell(0, 10, f"Entreprise / Company: {company_name}", ln=True)
-        pdf.output("rapport_labt.pdf")
-        st.success("PDF généré avec succès ✅ / PDF generated successfully")
+if not st.session_state.logged_in:
+    st.header("Login / Connexion")
+    username = st.text_input("Username / Nom d'utilisateur:").lower()
+    password = st.text_input("Password / Mot de passe:", type="password")
+    
+    if st.button("Login / Se connecter"):
+        # Vérification simple pour l'exemple
+        if username == "admin" and password == "admin":
+            st.session_state.logged_in = True
+            st.success("Login successful ✅ / Connexion réussie ✅")
+            st.experimental_rerun()
+        else:
+            st.error("Invalid credentials / Identifiants invalides")
+else:
+    selected_option = main_menu()
+    
+    previous_menu_button()  # Bouton pour revenir au menu précédent
+    
+    if selected_option in ["Admin", "Panneau Admin"]:
+        admin_menu()
+    elif selected_option in ["Unknown calculation", "Calcul inconnu"]:
+        st.info("Go to Part 3 / Aller à Partie 3 pour calcul inconnu")
+    elif selected_option in ["S/N Analysis", "Analyse S/N"]:
+        st.info("Go to Part 3 / Aller à Partie 3 pour S/N analysis")
