@@ -119,8 +119,8 @@ def generate_pdf(title, content_text, company=""):
 def offer_pdf_actions(pdf_file):
     with open(pdf_file, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
-    st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Download PDF</a>', unsafe_allow_html=True)
-
+    st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Download PDF</a>', unsafe_allow_html=True
+#
 -------------------------------
 # Linéarité
 # -------------------------------
