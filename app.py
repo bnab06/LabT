@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 import os
 from fpdf import FPDF
 from datetime import datetime
+import base64
 
 USERS_FILE = "users.json"
 
@@ -96,9 +97,9 @@ def manage_users():
     st.button("⬅️ Déconnexion", on_click=logout)
 
 # -------------------------------
-# PDF
+# PDF texte uniquement
 # -------------------------------
-def generate_pdf(title, content_text, fig=None, company=""):
+def generate_pdf(title, content_text, company=""):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 16)
@@ -111,18 +112,19 @@ def generate_pdf(title, content_text, fig=None, company=""):
     pdf.ln(10)
     pdf.multi_cell(0, 8, content_text)
 
-    if fig:
-        try:
-            img_path = "/tmp/temp_plot.png"
-            fig.write_image(img_path)
-            pdf.image(img_path, x=10, w=190)
-            os.remove(img_path)
-        except Exception as e:
-            st.warning(f"Impossible d’ajouter la figure dans le PDF : {e}")
-
     pdf_file = f"{title}_{st.session_state.username}.pdf"
     pdf.output(pdf_file)
     return pdf_file
+
+def offer_pdf_actions(pdf_file):
+    # Téléchargement
+    with open(pdf_file, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    st.markdown(f'<a href="data:application/octet-stream;base64,{b64}" download="{pdf_file}">⬇️ Télécharger le PDF</a>', unsafe_allow_html=True)
+    # Impression
+    st.markdown(f'<a href="javascript:window.print()">🖨️ Imprimer le PDF</a>', unsafe_allow_html=True)
+    # Partage
+    st.markdown(f'<p>🔗 Partager le fichier : {pdf_file}</p>', unsafe_allow_html=True)
 
 # -------------------------------
 # Linéarité
@@ -147,7 +149,8 @@ def linearity_page():
                 return
 
             slope, intercept = np.polyfit(conc, resp, 1)
-            eq = f"y = {slope:.4f}x + {intercept:.4f}"
+            r2 = np.corrcoef(conc, resp)[0,1]**2
+            eq = f"y = {slope:.4f}x + {intercept:.4f} (R² = {r2:.4f})"
 
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=conc, y=resp, mode="markers", name="Points"))
@@ -166,8 +169,8 @@ def linearity_page():
 
             def export_pdf_linearity():
                 content_text = f"Courbe de linéarité:\nÉquation: {eq}\nType inconnu: {unknown_type}\nValeur inconnue: {unknown_value}\nRésultat: {result:.4f} {unit if unknown_type=='Concentration inconnue' else ''}"
-                pdf_file = generate_pdf("Linearity_Report", content_text, fig, company_name)
-                st.success(f"PDF généré : {pdf_file}")
+                pdf_file = generate_pdf("Linearity_Report", content_text, company_name)
+                offer_pdf_actions(pdf_file)
 
             st.button("Exporter le rapport PDF", on_click=export_pdf_linearity)
 
@@ -214,8 +217,8 @@ def sn_page():
 
             def export_pdf_sn():
                 content_text = f"S/N Analysis:\nSignal max: {signal_peak}\nNoise: {noise:.4f}\nS/N: {sn_ratio:.2f}\nLOD: {lod:.4f}, LOQ: {loq:.4f}"
-                pdf_file = generate_pdf("SN_Report", content_text, fig, company_name)
-                st.success(f"PDF généré : {pdf_file}")
+                pdf_file = generate_pdf("SN_Report", content_text, company_name)
+                offer_pdf_actions(pdf_file)
 
             st.button("Exporter le rapport PDF", on_click=export_pdf_sn)
 
