@@ -1,5 +1,3 @@
----
-
 ### 4️⃣ `app.py`  
 
 Voici un **exemple complet et moderne** pour LabT, sans sidebar, avec connexion, gestion utilisateurs, linéarité, calcul inconnu et S/N à partir de CSV.  
