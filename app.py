@@ -45,7 +45,7 @@ def login():
             st.session_state.logged_in = True
             st.session_state.username = selected_user
             st.session_state.role = users[selected_user]["role"]
-            # définir la page par défaut selon le rôle
+            # Page par défaut après connexion
             st.session_state.current_page = "manage_users" if st.session_state.role == "admin" else "linearity"
             st.success("Connexion réussie ✅")
         else:
@@ -186,7 +186,7 @@ def sn_page():
         logout()
 
 # -------------------------------
-# Menu principal avec navigation persistante
+# Menu principal avec navigation immédiate
 # -------------------------------
 def main_menu():
     role = st.session_state.role
@@ -194,9 +194,16 @@ def main_menu():
     if role == "admin":
         st.session_state.current_page = "manage_users"
     elif role == "user":
-        # Menu utilisateur
-        choice = st.selectbox("Choisir une option :", ["Courbe de linéarité", "Calcul S/N"], key="main_choice")
-        st.session_state.current_page = "linearity" if choice == "Courbe de linéarité" else "sn"
+        # Menu utilisateur : la page change immédiatement selon la sélection
+        choice = st.selectbox(
+            "Choisir une option :", 
+            ["Courbe de linéarité", "Calcul S/N"], 
+            key="main_choice"
+        )
+        if choice == "Courbe de linéarité":
+            st.session_state.current_page = "linearity"
+        else:
+            st.session_state.current_page = "sn"
     else:
         st.error("Rôle inconnu.")
 
