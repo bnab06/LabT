@@ -56,6 +56,9 @@ def login():
 # Page admin : gestion des utilisateurs
 # -------------------------------
 def validate_user_action(action, username, password, role):
+    if not username or (action != "Supprimer" and not password):
+        st.warning("Tous les champs doivent être remplis !")
+        return
     users = load_users()
     if action == "Ajouter":
         if username in users:
@@ -85,13 +88,11 @@ def manage_users():
     st.header("👥 Gestion des utilisateurs")
     st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
 
-    users = load_users()
     action = st.selectbox("Action :", ["Ajouter", "Modifier", "Supprimer"], key="action_admin")
     username = st.text_input("Nom d’utilisateur :", key="username_admin")
     password = st.text_input("Mot de passe :", key="password_admin")
     role = st.selectbox("Rôle :", ["user", "admin"], key="role_admin")
     st.button("Valider", on_click=validate_user_action, args=(action, username, password, role))
-
     st.button("⬅️ Déconnexion", on_click=logout)
 
 # -------------------------------
@@ -111,10 +112,13 @@ def generate_pdf(title, content_text, fig=None, company=""):
     pdf.multi_cell(0, 8, content_text)
 
     if fig:
-        img_path = "/tmp/temp_plot.png"
-        fig.write_image(img_path)
-        pdf.image(img_path, x=10, w=190)
-        os.remove(img_path)
+        try:
+            img_path = "/tmp/temp_plot.png"
+            fig.write_image(img_path)
+            pdf.image(img_path, x=10, w=190)
+            os.remove(img_path)
+        except Exception as e:
+            st.warning(f"Impossible d’ajouter la figure dans le PDF : {e}")
 
     pdf_file = f"{title}_{st.session_state.username}.pdf"
     pdf.output(pdf_file)
@@ -131,7 +135,7 @@ def linearity_page():
     resp_input = st.text_input("Réponses (séparées par des virgules)", key="resp_input")
     unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
     unknown_value = st.number_input("Valeur inconnue :", value=0.0, step=0.1, key="unknown_value")
-    unit = st.selectbox("Unité :", ["µg/mL", "mg/L", "g/L"], index=0, key="unit")  # µg/mL par défaut
+    unit = st.selectbox("Unité :", ["µg/mL", "mg/L", "g/L"], index=0, key="unit")
     company_name = st.text_input("Nom de la compagnie pour le rapport PDF :", value="", key="company_name")
 
     if conc_input and resp_input:
@@ -152,10 +156,7 @@ def linearity_page():
             st.plotly_chart(fig)
             st.success(f"Équation : {eq}")
 
-            # Calcul inconnu instantané
-            if slope == 0:
-                st.error("La pente est nulle, impossible de calculer l’inconnu.")
-            else:
+            if slope != 0:
                 if unknown_type == "Concentration inconnue":
                     result = (unknown_value - intercept) / slope
                     st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
@@ -163,7 +164,6 @@ def linearity_page():
                     result = slope * unknown_value + intercept
                     st.info(f"🔹 Signal inconnu = {result:.4f}")
 
-            # Export PDF
             def export_pdf_linearity():
                 content_text = f"Courbe de linéarité:\nÉquation: {eq}\nType inconnu: {unknown_type}\nValeur inconnue: {unknown_value}\nRésultat: {result:.4f} {unit if unknown_type=='Concentration inconnue' else ''}"
                 pdf_file = generate_pdf("Linearity_Report", content_text, fig, company_name)
