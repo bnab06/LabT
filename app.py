@@ -36,10 +36,13 @@ def logout():
 def login():
     users = load_users()
     st.title("🔬 LabT - Connexion")
+
     selected_user = st.selectbox("Choisir un utilisateur :", list(users.keys()))
     password = st.text_input("Mot de passe :", type="password")
 
-    if st.button("Se connecter", key="login_btn"):
+    login_clicked = st.button("Se connecter", key="login_btn")
+
+    if login_clicked:
         if selected_user in users and users[selected_user]["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = selected_user
@@ -204,8 +207,13 @@ def main_menu():
 # Lancement
 # -------------------------------
 if __name__ == "__main__":
+    # ✅ Initialisation sécurisée des clés de session
     if "logged_in" not in st.session_state:
         st.session_state.logged_in = False
+    if "username" not in st.session_state:
+        st.session_state.username = ""
+    if "role" not in st.session_state:
+        st.session_state.role = ""
 
     if not st.session_state.logged_in:
         login()
