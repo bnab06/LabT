@@ -31,7 +31,7 @@ if "df" not in st.session_state:
     st.session_state.df = None
 
 if "slope" not in st.session_state:
-    st.session_state.slope = NoneType
+    st.session_state.slope = None
 # ========================
 # PARTIE 2 : LOGIN & LANGUE
 # ========================
