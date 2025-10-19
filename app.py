@@ -88,6 +88,7 @@ def validate_user_action(action, username, password, role):
 def manage_users():
     st.header("👥 Gestion des utilisateurs")
     st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
+
     action = st.selectbox("Action :", ["Ajouter", "Modifier", "Supprimer"], key="action_admin")
     username = st.text_input("Nom d’utilisateur :", key="username_admin")
     password = st.text_input("Mot de passe :", key="password_admin")
@@ -110,6 +111,7 @@ def generate_pdf(title, content_text, company=""):
     pdf.cell(0, 10, f"Log: LabT", ln=True)
     pdf.ln(10)
     pdf.multi_cell(0, 8, content_text)
+
     pdf_file = f"{title}_{st.session_state.username}.pdf"
     pdf.output(pdf_file)
     return pdf_file
@@ -125,6 +127,7 @@ def offer_pdf_actions(pdf_file):
 def linearity_page():
     st.header("📈 Courbe de linéarité")
     st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
+
     conc_input = st.text_input("Concentrations connues (séparées par des virgules)", key="conc_input")
     resp_input = st.text_input("Réponses (séparées par des virgules)", key="resp_input")
     unknown_type = st.selectbox("Type d'inconnu :", ["Concentration inconnue", "Signal inconnu"], key="unknown_type")
@@ -143,6 +146,7 @@ def linearity_page():
             slope, intercept = np.polyfit(conc, resp, 1)
             r2 = np.corrcoef(conc, resp)[0,1]**2
             eq = f"y = {slope:.4f}x + {intercept:.4f} (R² = {r2:.4f})"
+
             st.session_state.slope = slope
             st.session_state.unit = unit
 
@@ -158,7 +162,7 @@ def linearity_page():
                     result = (unknown_value - intercept) / slope
                     st.info(f"🔹 Concentration inconnue = {result:.4f} {unit}")
                 else:
-                    result = slope * unknown_value
+                    result = slope * unknown_value + intercept
                     st.info(f"🔹 Signal inconnu = {result:.4f}")
 
             def export_pdf_linearity():
@@ -180,23 +184,28 @@ def calculate_sn(df):
     signal_peak = df["signal"].max()
     noise = df["signal"].std()
     sn_ratio = signal_peak / noise
+
     baseline = df.iloc[:max(1, int(0.1*len(df)))]
     noise_usp = baseline["signal"].std()
     sn_usp = signal_peak / noise_usp
+
     lod = 3 * noise
     loq = 10 * noise
+
     return sn_ratio, sn_usp, lod, loq, signal_peak, noise, noise_usp
 
 def sn_page():
     st.header("📊 Calcul du rapport signal/bruit (S/N)")
     st.write(f"Vous êtes connecté en tant que **{st.session_state.username}**")
     company_name = st.text_input("Nom de la compagnie pour le rapport PDF :", value="", key="company_name_sn")
+
     uploaded_file = st.file_uploader("Téléverser un chromatogramme (CSV)", type=["csv"], key="sn_upload")
 
     if uploaded_file:
         try:
             df = pd.read_csv(uploaded_file, sep=None, engine='python')
             df.columns = [c.strip().lower() for c in df.columns]
+
             if "time" not in df.columns or "signal" not in df.columns:
                 st.error("CSV doit contenir les colonnes : Time et Signal")
                 return
