@@ -1,146 +1,160 @@
-# ========================
-# PARTIE 1 : IMPORTS & INITIALISATION
-# ========================
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from fpdf import FPDF
-import os
+from datetime import datetime
+import json
+import matplotlib.pyplot as plt
 
-# ----------------------
-# Initialisation session_state
-# ----------------------
+# Initialisation de session_state
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "username" not in st.session_state:
+    st.session_state.username = ""
+if "role" not in st.session_state:
+    st.session_state.role = ""
 if "current_page" not in st.session_state:
     st.session_state.current_page = "login"
-
-if "role" not in st.session_state:
-    st.session_state.role = None
-
 if "unit" not in st.session_state:
-    st.session_state.unit = ""  # Unité pour calcul inconnu
-
-if "lang" not in st.session_state:
-    st.session_state.lang = "en"  # Langue par défaut
-
-if "company_name" not in st.session_state:
-    st.session_state.company_name = ""
-
-if "df" not in st.session_state:
-    st.session_state.df = None
-
-if "slope" not in st.session_state:
-    st.session_state.slope = None
-# ========================
-# PARTIE 2 : LOGIN & LANGUE
-# ========================
-
-def login_action(username, password):
-    # Exemples simples d'utilisateurs
-    users = {
-        "admin": {"password": "admin", "role": "admin"},
-        "user": {"password": "user", "role": "user"}
-    }
-    if username in users and password == users[username]["password"]:
-        st.session_state.role = users[username]["role"]
-        st.session_state.current_page = "menu"
-        st.success("Login successful ✅ / Connexion réussie ✅")
-    else:
-        st.error("Invalid credentials / Identifiants invalides")
-
-def login_page():
-    st.title("LabT App")
-    lang = st.selectbox("Language / Langue:", ["English", "Français"], index=0 if st.session_state.lang=="en" else 1)
-    st.session_state.lang = "en" if lang=="English" else "fr"
-
-    username = st.text_input("Username / Nom d'utilisateur")
-    password = st.text_input("Password / Mot de passe", type="password")
-    st.button("Login / Connexion", on_click=login_action, args=(username, password))
-# ========================
-# PARTIE 3 : MENU & UPLOAD CSV
-# ========================
-
-def menu_page():
-    st.header("Main Menu / Menu Principal")
-    
-    st.text_input("Company Name / Nom de l’entreprise", key="company_name")
-    
-    choice = st.radio(
-        "Choose an option / Choisissez une option:",
-        ["Calculate / Calculer", "Generate PDF / Générer PDF", "Logout / Déconnexion"]
-    )
-    
-    if choice == "Calculate / Calculer":
-        st.session_state.current_page = "calculate"
-    elif choice == "Generate PDF / Générer PDF":
-        st.session_state.current_page = "export_pdf"
-    elif choice == "Logout / Déconnexion":
-        st.session_state.current_page = "login"
-        st.session_state.role = None
-
-def calculate_page():
-    st.header("Calculation / Calcul")
-    
-    uploaded_file = st.file_uploader("Upload CSV / Importer CSV", type=["csv"])
-    if uploaded_file is not None:
-        try:
-            st.session_state.df = pd.read_csv(uploaded_file)
-            st.success("CSV loaded successfully / CSV chargé avec succès")
-        except Exception as e:
-            st.error(f"Error reading CSV / Erreur lecture CSV: {str(e)}")
-
-    # Bouton retour
-    st.button("Back / Retour", on_click=lambda: st.session_state.update({"current_page":"menu"}))
-# ========================
-# PARTIE 4 : CALCULS & PDF
-# ========================
-
-def calculate_sn(df, unit, use_linearity=False):
+    st.session_state.unit = ""
+# Chargement des utilisateurs depuis un fichier JSON
+def load_users():
     try:
-        # Exemple S/N classique et USP
-        sn_classic = df['Signal'].max() / df['Signal'].std()
-        sn_usp = sn_classic * 0.9  # Simplifié pour illustration
-        slope = None
-        if use_linearity:
-            x = df['Concentration']
-            y = df['Signal']
-            slope = np.polyfit(x, y, 1)[0]
-        return sn_classic, sn_usp, slope
-    except Exception as e:
-        st.error(f"Error in calculation / Erreur dans les calculs: {str(e)}")
-        return None, None, None
+        with open("users.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_users(users):
+    with open("users.json", "w") as f:
+        json.dump(users, f, indent=4)
+
+# Action de login insensible à la casse
+def login_action(selected_user, password):
+    users = load_users()
+    selected_user_lower = selected_user.lower()
+    matched_user = None
+    for user in users:
+        if user.lower() == selected_user_lower:
+            matched_user = user
+            break
+
+    if matched_user and users[matched_user]["password"] == password:
+        st.session_state.logged_in = True
+        st.session_state.username = matched_user
+        st.session_state.role = users[matched_user]["role"]
+        st.session_state.current_page = "manage_users" if st.session_state.role == "admin" else "linearity"
+        st.success(f"Connexion réussie ✅ / You are logged in as {matched_user}")
+        st.experimental_rerun()
+    else:
+        st.error("Nom d’utilisateur ou mot de passe incorrect ❌ / Wrong username or password")
+
+# Page login
+def login_page():
+    st.title("LabT App / Application LabT")
+    users = load_users()
+    selected_user = st.selectbox(
+        "Choisir un utilisateur / Choose user:", 
+        sorted(list(users.keys()), key=lambda x: x.lower()), 
+        key="login_user"
+    )
+    password = st.text_input("Mot de passe / Password:", type="password", key="login_pass")
+    if st.button("Se connecter / Login"):
+        login_action(selected_user, password)
+
+# Navigation
+if not st.session_state.logged_in:
+    login_page()
+def main_menu():
+    st.title("LabT App / Application LabT")
+    if st.session_state.role == "admin":
+        menu_options = [
+            "Gérer les utilisateurs / Manage Users",
+            "Linéarité / Linearity",
+            "Calcul S/N classique / Classical S/N",
+            "Calcul S/N USP / USP S/N",
+        ]
+    else:
+        menu_options = [
+            "Linéarité / Linearity",
+            "Calcul S/N classique / Classical S/N",
+            "Calcul S/N USP / USP S/N",
+        ]
+
+    choice = st.selectbox("Menu principal / Main menu:", menu_options, key="main_menu")
+
+    if choice.startswith("Gérer les utilisateurs") or choice.startswith("Manage Users"):
+        manage_users_page()
+    elif choice.startswith("Linéarité") or choice.startswith("Linearity"):
+        linearity_page()
+    elif choice.startswith("Calcul S/N classique") or choice.startswith("Classical S/N"):
+        sn_classical_page()
+    elif choice.startswith("Calcul S/N USP") or choice.startswith("USP S/N"):
+        sn_usp_page()
+def manage_users_page():
+    st.subheader("Gestion des utilisateurs / User Management")
+    users = load_users()
+
+    action = st.radio("Action / Action:", ["Ajouter / Add", "Supprimer / Delete"])
+    
+    if action.startswith("Ajouter") or action.startswith("Add"):
+        new_user = st.text_input("Nom d'utilisateur / Username:")
+        new_pass = st.text_input("Mot de passe / Password:", type="password")
+        role = st.selectbox("Rôle / Role:", ["admin", "user"])
+        if st.button("Valider / Submit"):
+            if new_user:
+                users[new_user] = {"password": new_pass, "role": role}
+                save_users(users)
+                st.success("Utilisateur ajouté ✅ / User added")
+            else:
+                st.error("Veuillez saisir un nom d'utilisateur / Please enter a username")
+    
+    elif action.startswith("Supprimer") or action.startswith("Delete"):
+        user_to_delete = st.selectbox("Sélectionner l'utilisateur / Select user:", list(users.keys()))
+        if st.button("Supprimer / Delete"):
+            if user_to_delete in users:
+                del users[user_to_delete]
+                save_users(users)
+                st.success("Utilisateur supprimé ✅ / User deleted")
+
+def linearity_page():
+    st.subheader("Courbe de linéarité / Linearity curve")
+    st.info("Ici vous pouvez importer vos données CSV et tracer la courbe / Import CSV to plot curve")
+    uploaded_file = st.file_uploader("Importer CSV / Upload CSV", type=["csv"])
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.dataframe(df.head())
+        # Option pour tracer la courbe de linéarité
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=df.iloc[:,0], y=df.iloc[:,1], mode='lines+markers'))
+        st.plotly_chart(fig)
+        st.session_state.slope, st.session_state.intercept = np.polyfit(df.iloc[:,0], df.iloc[:,1], 1)
+
+def sn_classical_page():
+    st.subheader("S/N classique / Classical S/N")
+    st.info("Calcul S/N basé sur le bruit de fond")
+    # Ici ajouter calculs classiques de S/N
+
+def sn_usp_page():
+    st.subheader("S/N USP / USP S/N")
+    st.info("Calcul S/N selon USP, possibilité d'utiliser la courbe de linéarité")
+    # Ici ajouter calculs USP et LOD/LOQ
+    use_linearity = st.checkbox("Utiliser la courbe de linéarité / Use linearity curve")
+    if use_linearity:
+        st.write(f"Slope utilisée: {st.session_state.slope if 'slope' in st.session_state else 'N/A'}")
 
 def export_pdf():
-    if st.session_state.company_name.strip() == "":
-        st.warning("Please enter the company name / Veuillez saisir le nom de l’entreprise")
+    st.subheader("Exporter le rapport / Export PDF")
+    company_name = st.text_input("Nom de l'entreprise / Company name:")
+    if not company_name:
+        st.error("Veuillez saisir le nom de l'entreprise avant d'exporter / Please enter company name")
         return
-
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"App: LabT / Société: {st.session_state.company_name}", ln=True)
-    
-    if st.session_state.df is not None:
-        sn_classic, sn_usp, slope = calculate_sn(st.session_state.df, st.session_state.unit)
-        pdf.set_font("Arial", "", 12)
-        pdf.cell(0, 10, f"S/N classic: {sn_classic:.2f if sn_classic else 'N/A'} {st.session_state.unit}", ln=True)
-        pdf.cell(0, 10, f"S/N USP: {sn_usp:.2f if sn_usp else 'N/A'} {st.session_state.unit}", ln=True)
-        if slope:
-            pdf.cell(0, 10, f"Slope for LOQ/LOD: {slope:.4f}", ln=True)
-
-    pdf_file = f"{st.session_state.company_name}_LabT_report.pdf"
-    pdf.output(pdf_file)
-    st.success(f"PDF generated: {pdf_file}")
-
-# ----------------------
-# PAGE ROUTING
-# ----------------------
-if st.session_state.current_page == "login":
-    login_page()
-elif st.session_state.current_page == "menu":
-    menu_page()
-elif st.session_state.current_page == "calculate":
-    calculate_page()
-elif st.session_state.current_page == "export_pdf":
-    export_pdf()
+    if st.button("Générer PDF / Generate PDF"):
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 10, f"App: LabT", ln=True)
+        pdf.cell(0, 10, f"Entreprise / Company: {company_name}", ln=True)
+        pdf.output("rapport_labt.pdf")
+        st.success("PDF généré avec succès ✅ / PDF generated successfully")
