@@ -1,7 +1,5 @@
 streamlit==1.39.0
 pandas==2.2.2
-numpy==1.26.0
+numpy==1.27.0
 matplotlib==3.8.0
-scipy==1.10.1
 fpdf==1.7.2
-plotly==5.20.0
