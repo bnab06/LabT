@@ -6,4 +6,7 @@ plotly==5.15.0
 fpdf2==2.7.1
 scipy==1.10.1
 openpyxl==3.1.2
-rich==13.3.4
+rich==13.5.2
+markdown-it-py==2.2.0
+mdurl==0.1.2
+pygments==2.19.2
