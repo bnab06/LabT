@@ -1,22 +1,21 @@
-# LabT Application
+# LabT - Application de traitement analytique
 
 ## Description
-LabT est une application pour la gestion de linéarité, calcul S/N classique et USP, LOD/LOQ en concentration, et export PDF/PNG/CSV.
+LabT est une application Streamlit bilingue (FR/EN) pour le traitement de données chromatographiques. Elle permet :
 
-## Features
-- Login admin / user (username non case-sensitive)
-- User peut changer son mot de passe
-- Linéarité : CSV ou saisie manuelle, R² affiché
-- S/N : choix de zone, export PDF/PNG/CSV
-- Graphiques interactifs
-- Application bilingue (FR/EN)
-- Export rapport PDF avec logo, nom entreprise, utilisateur, date
+- Gestion utilisateurs simple (admin/user)  
+- Saisie ou upload CSV pour la linéarité  
+- Calcul de la concentration inconnue à partir du signal et inversement  
+- Calcul S/N classique et S/N USP avec sélection de la zone  
+- Visualisation des graphiques (linéarité et chromatogrammes)  
+- Export PDF/PNG/CSV des résultats  
+- Modification du mot de passe pour les utilisateurs  
 
-## Requirements
-- Python 3.11
-- Voir `requirements.txt`
+---
 
-## Deployment
+## Installation
+
+1. Cloner le dépôt :  
 ```bash
-pip install -r requirements.txt
-streamlit run app.py
+git clone <URL_DU_DEPOT>
+cd labt
