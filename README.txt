@@ -1,27 +1,18 @@
-# LabT — Signal / Bruit, LOD, LOQ
+# 🔬 LabT – Analyse Linéarité & S/N (Classique & USP)
 
-LabT est une application Streamlit bilingue (FR/EN) pour analyser des signaux, calculer le rapport signal sur bruit (S/N), le LOD et le LOQ, et générer des rapports PDF.
-
----
-
-## 🧩 Fonctionnalités
-
-- Authentification multi-utilisateur :
-  - **admin** : gestion des utilisateurs.
-  - **user1 / user2** : accès aux fonctionnalités d'analyse.
-- Import de fichiers CSV avec colonnes **Time** et **Signal**.
-- Sélection interactive des zones de pic et de bruit pour le calcul S/N.
-- Calcul automatique de **LOD** et **LOQ**.
-- Visualisation des signaux avec zones de pic et bruit sur graphique Plotly.
-- Génération et téléchargement de rapports PDF.
-- Interface bilingue **Français / English**.
+Application Streamlit complète pour l’analyse de données chromatographiques et spectroscopiques :
+- Calcul **S/N (classique et USP)**  
+- Calcul **Linéarité, LOD, LOQ**  
+- Gestion **multi-utilisateurs** (admin + utilisateurs)  
+- **Bilingue** (Français / Anglais)  
+- Génération automatique de **rapport PDF**  
+- Visualisation **chromatogramme interactif**  
 
 ---
 
-## ⚙️ Installation
+## ⚙️ Installation locale
 
-1. Crée un environnement Python 3.13 :
+### 1️⃣ Cloner le dépôt
 ```bash
-python3.13 -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
+git clone https://github.com/<votre_repo>/labt.git
+cd labt
