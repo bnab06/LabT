@@ -1,12 +1,22 @@
 # LabT Application
 
 ## Description
-Application Streamlit pour la gestion de linéarité, S/N classique et USP, export PDF, utilisateurs et mot de passe. Bilingue FR/EN.
+LabT est une application pour la gestion de linéarité, calcul S/N classique et USP, LOD/LOQ en concentration, et export PDF/PNG/CSV.
 
-## Installation
-1. Installer Python 3.11
-2. Créer un environnement virtuel
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # Linux/Mac
-   venv\Scripts\activate      # Windows
+## Features
+- Login admin / user (username non case-sensitive)
+- User peut changer son mot de passe
+- Linéarité : CSV ou saisie manuelle, R² affiché
+- S/N : choix de zone, export PDF/PNG/CSV
+- Graphiques interactifs
+- Application bilingue (FR/EN)
+- Export rapport PDF avec logo, nom entreprise, utilisateur, date
+
+## Requirements
+- Python 3.11
+- Voir `requirements.txt`
+
+## Deployment
+```bash
+pip install -r requirements.txt
+streamlit run app.py

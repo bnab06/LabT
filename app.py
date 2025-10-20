@@ -1,168 +1,158 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-from fpdf import FPDF
+from auth import login_screen, admin_screen, user_screen
+from utils import set_language
+
+def main():
+    # Choix langue
+    lang = st.sidebar.selectbox("Language / Langue", ["English", "Français"])
+    _ = set_language(lang)
+
+    st.title(_("LabT Application"))
+
+    # Login
+    user_info = login_screen()
+    if user_info:
+        role = user_info['role']
+        if role == 'admin':
+            admin_screen()
+        else:
+            user_screen()
+
+if __name__ == "__main__":
+    main()
+import streamlit as st
 import json
-from datetime import datetime
-import peakutils
+import hashlib
 
-# --------------------------
-# CONFIG
-# --------------------------
-st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="auto")
+USERS_FILE = "users.json"
 
-# --------------------------
-# UTILITAIRES
-# --------------------------
 def load_users():
     try:
-        with open("users.json", "r") as f:
+        with open(USERS_FILE, "r") as f:
             return json.load(f)
     except FileNotFoundError:
         return {}
 
 def save_users(users):
-    with open("users.json", "w") as f:
-        json.dump(users, f, indent=4)
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
 
-# Bilingue
-LANG = {"FR": {
-    "login": "Connexion",
-    "username": "Nom d'utilisateur",
-    "password": "Mot de passe",
-    "admin_menu": "Menu Admin",
-    "user_menu": "Menu Utilisateur",
-    "change_pass": "Changer mot de passe",
-    "logout": "Déconnexion",
-    "linearity": "Linéarité",
-    "sn": "S/N",
-    "export_pdf": "Exporter PDF",
-    "concentration": "Concentration",
-    "signal": "Signal",
-    "upload_csv": "Importer CSV",
-    "manual_entry": "Saisie manuelle",
-    "error_required": "Veuillez saisir le nom de l'entreprise."
-}, "EN": {
-    "login": "Login",
-    "username": "Username",
-    "password": "Password",
-    "admin_menu": "Admin Menu",
-    "user_menu": "User Menu",
-    "change_pass": "Change Password",
-    "logout": "Logout",
-    "linearity": "Linearity",
-    "sn": "S/N",
-    "export_pdf": "Export PDF",
-    "concentration": "Concentration",
-    "signal": "Signal",
-    "upload_csv": "Upload CSV",
-    "manual_entry": "Manual entry",
-    "error_required": "Please enter the company name."
-}}
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
-# --------------------------
-# LOGIN / USERS
-# --------------------------
 def login_screen():
-    st.title("LabT")
+    st.sidebar.subheader("Login")
+    username = st.sidebar.text_input("Username").lower()
+    password = st.sidebar.text_input("Password", type="password")
     users = load_users()
-    username = st.text_input(LANG["FR"]["username"])
-    password = st.text_input(LANG["FR"]["password"], type="password")
-    if st.button(LANG["FR"]["login"]):
-        if username.lower() in (u.lower() for u in users) and users[username]["password"] == password:
-            st.session_state["user"] = username
-            if users[username]["role"] == "admin":
-                st.session_state["page"] = "admin_menu"
-            else:
-                st.session_state["page"] = "user_menu"
+    if st.sidebar.button("Login"):
+        if username in users and users[username]["password"] == hash_password(password):
+            st.session_state['user'] = {"username": username, "role": users[username]["role"]}
+            return st.session_state['user']
         else:
-            st.error("Login incorrect")
+            st.sidebar.error("Invalid credentials")
+    return None
 
-# --------------------------
-# ADMIN MENU
-# --------------------------
-def admin_menu():
-    st.title("Admin")
+def admin_screen():
+    st.header("Admin Dashboard")
+    st.write("Manage Users")
     users = load_users()
-    st.write("Liste des utilisateurs :")
     for u, info in users.items():
-        st.write(f"- {u} ({info['role']})")
-    if st.button(LANG["FR"]["logout"]):
-        st.session_state.clear()
-        st.experimental_rerun()
+        st.write(f"Username: {u}, Role: {info['role']}")
+    st.text("Add/Remove users via JSON file for simplicity.")
 
-# --------------------------
-# USER MENU
-# --------------------------
-def user_menu():
-    st.title("Utilisateur")
-    if st.button(LANG["FR"]["change_pass"]):
-        change_password()
-    if st.button(LANG["FR"]["linearity"]):
-        page_linearity()
-    if st.button(LANG["FR"]["sn"]):
-        page_sn()
-    if st.button(LANG["FR"]["logout"]):
-        st.session_state.clear()
-        st.experimental_rerun()
+def user_screen():
+    from linearity import page_linearity
+    from sn_chromatogram import page_sn
+    st.header("User Dashboard")
+    page_linearity()
+    page_sn()
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-def change_password():
-    st.subheader(LANG["FR"]["change_pass"])
-    old = st.text_input("Ancien mot de passe", type="password")
-    new = st.text_input("Nouveau mot de passe", type="password")
-    if st.button("Valider"):
-        users = load_users()
-        user = st.session_state["user"]
-        if users[user]["password"] == old:
-            users[user]["password"] = new
-            save_users(users)
-            st.success("Mot de passe changé")
-        else:
-            st.error("Mot de passe incorrect")
-
-# --------------------------
-# LINEARITY
-# --------------------------
 def page_linearity():
-    st.subheader(LANG["FR"]["linearity"])
-    mode = st.radio("Mode", [LANG["FR"]["upload_csv"], LANG["FR"]["manual_entry"]])
-    if mode == LANG["FR"]["upload_csv"]:
-        file = st.file_uploader("CSV")
+    st.subheader("Linearity / Linéarité")
+    option = st.radio("Input Method / Méthode de saisie", ["CSV Upload", "Manual Entry"])
+    if option == "CSV Upload":
+        file = st.file_uploader("Upload CSV")
         if file:
             df = pd.read_csv(file)
-            x = df["Concentration"].values
-            y = df["Signal"].values
-            slope, intercept = np.polyfit(x, y, 1)
-            r2 = np.corrcoef(x, y)[0,1]**2
+            slope, intercept, r2 = linearity_calc(df)
             st.write(f"Slope: {slope}, Intercept: {intercept}, R²: {r2}")
-            plt.plot(x, y, 'o')
-            plt.plot(x, slope*x + intercept)
-            st.pyplot(plt)
+            plot_linearity(df, slope, intercept)
     else:
-        st.info("Saisie manuelle à compléter")
+        n = st.number_input("Number of points", 2, 10)
+        conc = [st.number_input(f"Concentration {i+1}") for i in range(n)]
+        signal = [st.number_input(f"Signal {i+1}") for i in range(n)]
+        df = pd.DataFrame({"Concentration": conc, "Signal": signal})
+        slope, intercept, r2 = linearity_calc(df)
+        st.write(f"Slope: {slope}, Intercept: {intercept}, R²: {r2}")
+        plot_linearity(df, slope, intercept)
 
-# --------------------------
-# S/N
-# --------------------------
+def linearity_calc(df):
+    x = df['Concentration'].values
+    y = df['Signal'].values
+    slope, intercept = np.polyfit(x, y, 1)
+    y_pred = slope*x + intercept
+    r2 = np.corrcoef(y, y_pred)[0,1]**2
+    return slope, intercept, r2
+
+def plot_linearity(df, slope, intercept):
+    x = df['Concentration'].values
+    y = df['Signal'].values
+    plt.figure()
+    plt.scatter(x, y, label="Data")
+    plt.plot(x, slope*x + intercept, color='red', label="Fit")
+    plt.xlabel("Concentration")
+    plt.ylabel("Signal")
+    plt.legend()
+    st.pyplot(plt)
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from fpdf import FPDF
+
 def page_sn():
-    st.subheader(LANG["FR"]["sn"])
-    st.info("Calcul S/N à compléter avec choix de zone")
+    st.subheader("Signal / Noise Calculation")
+    file = st.file_uploader("Upload chromatogram CSV")
+    if file:
+        df = pd.read_csv(file)
+        x = df['Time'].values
+        y = df['Signal'].values
+        plt.figure()
+        plt.plot(x, y)
+        plt.xlabel("Time")
+        plt.ylabel("Signal")
+        st.pyplot(plt)
+        noise_region = st.slider("Select noise region (index)", 0, len(y)-1, (0, 10))
+        sn = calc_sn(y, noise_region)
+        st.write(f"S/N: {sn}")
+        if st.button("Export PDF"):
+            export_pdf(x, y, sn)
 
-# --------------------------
-# MAIN
-# --------------------------
-def main():
-    if "page" not in st.session_state:
-        st.session_state["page"] = "login"
-    if st.session_state["page"] == "login":
-        login_screen()
-    elif st.session_state["page"] == "admin_menu":
-        admin_menu()
-    elif st.session_state["page"] == "user_menu":
-        user_menu()
+def calc_sn(y, region):
+    noise = y[region[0]:region[1]]
+    peak = np.max(y)
+    std_noise = np.std(noise)
+    return peak / std_noise
 
-if __name__ == "__main__":
-    main()
+def export_pdf(x, y, sn):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"LabT Report - S/N: {sn}", 0, 1)
+    pdf.output("report.pdf")
+    st.success("PDF exported!")
+def set_language(lang):
+    # Simple bilingual dictionary
+    if lang == "English":
+        return lambda x: x
+    else:
+        translations = {
+            "LabT Application": "Application LabT",
+            "Login": "Connexion"
+        }
+        return lambda x: translations.get(x, x)
