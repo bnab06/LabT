@@ -1,5 +1,19 @@
 {
-  "admin": {"password": "admin123", "role": "admin"},
-  "user1": {"password": "user123", "role": "user"},
-  "user2": {"password": "user456", "role": "user"}
+  "users": [
+    {
+      "username": "admin",
+      "password": "hashed_admin_password",
+      "role": "admin"
+    },
+    {
+      "username": "user1",
+      "password": "hashed_user1_password",
+      "role": "user"
+    },
+    {
+      "username": "user2",
+      "password": "hashed_user2_password",
+      "role": "user"
+    }
+  ]
 }
