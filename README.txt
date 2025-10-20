@@ -1,22 +1,42 @@
-# LabT - Streamlit Analytical App
+# LabT - Application de traitement de chromatogrammes et calculs analytiques
 
-## Overview
-LabT is a bilingual analytical app for linearity, signal-to-noise (S/N) calculations, and PDF report generation.
+LabT est une application **bilingue (FR/EN)** pour l’analyse chromatographique, la gestion des utilisateurs et le calcul de concentrations inconnues, S/N, LOQ, LOD et linéarité.  
 
-Features:
-- User roles: Admin and User
-- Admin can manage users only
-- Users can calculate linearity, unknown concentrations/signals, S/N (classic & USP)
-- Upload CSV for data
-- Choose noise region for S/N
-- Generate PDF reports with graphs, username, company, and date
-- Change password
-- Bilingual interface (English/French)
+---
+
+## Fonctionnalités principales
+
+1. **Gestion des utilisateurs**
+   - Administration simple : l’admin peut gérer uniquement les utilisateurs.
+   - Chaque utilisateur peut changer son mot de passe.
+   - Nom d’utilisateur **non sensible à la casse**.
+
+2. **Linéarité**
+   - Calcul de la concentration inconnue à partir du signal et vice versa.
+   - Possibilité d’**importer un fichier CSV** ou de saisir les données manuellement.
+   - Génération de la pente de linéarité utilisée pour les calculs S/N, LOQ et LOD.
+
+3. **S/N (Signal-to-Noise)**
+   - S/N classique ou selon USP.
+   - Possibilité de sélectionner la zone où calculer S/N.
+   - Calculs LOQ et LOD basés sur la linéarité.
+
+4. **Visualisation**
+   - Affichage des chromatogrammes avec tracé des pics et du bruit.
+   - Graphiques interactifs pour S/N et linéarité.
+
+5. **Export des rapports**
+   - Export PDF incluant :
+     - Nom de l’entreprise
+     - Nom de l’utilisateur
+     - Date et heure
+   - Export CSV des résultats.
+
+---
 
 ## Installation
-1. Install Python 3.11+
-2. Create virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   venv\Scripts\activate     # Windows
+
+1. **Cloner le dépôt :**
+```bash
+git clone https://github.com/ton-repo/labt.git
+cd labt
