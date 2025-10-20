@@ -1,42 +1,67 @@
-# LabT - Application de traitement de chromatogrammes et calculs analytiques
+# 🧪 LabT — Analytical Tools App
 
-LabT est une application **bilingue (FR/EN)** pour l’analyse chromatographique, la gestion des utilisateurs et le calcul de concentrations inconnues, S/N, LOQ, LOD et linéarité.  
+### 🌐 Bilingual (Français / English)
+**LabT** est une application Streamlit complète pour les laboratoires analytiques.  
+Elle permet le calcul de **linéarité**, **S/N (Signal-to-Noise)** classique et USP,  
+ainsi que le calcul du **LOD** et **LOQ** en signal ou concentration.  
 
----
-
-## Fonctionnalités principales
-
-1. **Gestion des utilisateurs**
-   - Administration simple : l’admin peut gérer uniquement les utilisateurs.
-   - Chaque utilisateur peut changer son mot de passe.
-   - Nom d’utilisateur **non sensible à la casse**.
-
-2. **Linéarité**
-   - Calcul de la concentration inconnue à partir du signal et vice versa.
-   - Possibilité d’**importer un fichier CSV** ou de saisir les données manuellement.
-   - Génération de la pente de linéarité utilisée pour les calculs S/N, LOQ et LOD.
-
-3. **S/N (Signal-to-Noise)**
-   - S/N classique ou selon USP.
-   - Possibilité de sélectionner la zone où calculer S/N.
-   - Calculs LOQ et LOD basés sur la linéarité.
-
-4. **Visualisation**
-   - Affichage des chromatogrammes avec tracé des pics et du bruit.
-   - Graphiques interactifs pour S/N et linéarité.
-
-5. **Export des rapports**
-   - Export PDF incluant :
-     - Nom de l’entreprise
-     - Nom de l’utilisateur
-     - Date et heure
-   - Export CSV des résultats.
+L’app inclut une **gestion sécurisée des utilisateurs (admin + users)**,  
+un mode **bilingue (Fr/En)**, et la possibilité d’**exporter les rapports en PDF**.
 
 ---
 
-## Installation
+## 🚀 Fonctionnalités principales
 
-1. **Cloner le dépôt :**
-```bash
-git clone https://github.com/ton-repo/labt.git
-cd labt
+### 🔐 Gestion utilisateurs
+- L’**administrateur** peut :
+  - Ajouter / supprimer des utilisateurs
+  - Réinitialiser leurs mots de passe  
+- Les **utilisateurs** peuvent :
+  - Se connecter et utiliser l’app
+  - **Changer leur mot de passe** via un bouton dédié  
+
+---
+
+### 📊 Linéarité
+Deux modes :
+1. **Téléchargement d’un fichier CSV** (`Concentration`, `Signal`)
+2. **Saisie manuelle** dans un tableau interactif  
+
+Affiche :
+- Graphique `Signal` vs `Concentration`
+- Équation de la droite de calibration
+- Coefficient de corrélation **R²**
+- Pente, interception, équation et statistiques
+- Possibilité d’utiliser la pente pour **calculer LOD/LOQ** en concentration
+
+---
+
+### 🔬 Calcul S/N (Signal-to-Noise)
+Deux méthodes disponibles :
+- **Classique** : `Signal max / écart-type du bruit`
+- **USP** : selon la norme USP <621>  
+
+Fonctionnalités :
+- Import d’un chromatogramme (CSV avec `Time`, `Signal`)
+- Sélection de la **zone de bruit**
+- Calcul automatique :
+  - Signal max
+  - Bruit (σ)
+  - S/N
+  - LOD / LOQ (signal ou concentration si pente connue)
+- Visualisation du chromatogramme avec zones de calcul
+
+---
+
+### 📄 Export PDF
+- Inclut :
+  - Nom de l’entreprise
+  - Nom d’utilisateur
+  - Date
+  - Graphiques linéarité et chromatogramme
+  - Résultats complets bilingues  
+- Format professionnel et lisible
+
+---
+
+## 🧰 Structure du projet
