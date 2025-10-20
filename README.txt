@@ -1,17 +1,18 @@
-# LabT App
+## LabT Application
 
-## Description
-LabT est une application Streamlit pour les calculs de laboratoire :
-- Calcul inconnu (Unknown calculation)
-- Analyse Signal / Bruit (S/N analysis)
-- Export PDF des résultats
-
-L'application est bilingue : français / anglais.
+LabT est une application Streamlit pour effectuer des calculs de laboratoire, incluant :
+- Calcul inconnu / Unknown calculation
+- Calcul du rapport signal/bruit (S/N) classique et USP
+- Gestion bilingue français / anglais
+- Export de rapports PDF incluant unité et nom de l’entreprise
+- Gestion utilisateurs (admin) et modification de mot de passe (user)
 
 ---
 
 ## Installation
-1. Cloner ce projet.
-2. Installer les dépendances :
+
+1. Créer un environnement Python 3.13 (ou compatible)
 ```bash
-pip install -r requirements.txt
+python -m venv venv
+source venv/bin/activate   # Linux / Mac
+venv\Scripts\activate      # Windows
