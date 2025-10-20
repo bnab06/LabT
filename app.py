@@ -40,7 +40,7 @@ def login():
         if username in users and users[username]["password"] == password:
             st.session_state["user"] = username
             st.session_state["role"] = users[username]["role"]
-            st.experimental_rerun()
+            st.rerun()  # ✅ nouvelle méthode
         else:
             st.error("Nom d’utilisateur ou mot de passe incorrect.")
 
@@ -49,7 +49,7 @@ def logout():
         for key in ["user", "role"]:
             if key in st.session_state:
                 del st.session_state[key]
-        st.experimental_rerun()  # ✅ correction ici
+        st.rerun()  # ✅ correction ici aussi
 
 # ===============================
 # INTERFACE ADMIN
@@ -74,7 +74,7 @@ def admin_page():
             users[new_user] = {"password": new_pass, "role": role}
             save_users(users)
             st.success(f"Utilisateur {new_user} ajouté ✅")
-            st.experimental_rerun()
+            st.rerun()
 
     st.subheader("🗑 Supprimer un utilisateur")
     user_to_delete = st.selectbox("Choisir un utilisateur", list(users.keys()))
@@ -85,7 +85,7 @@ def admin_page():
             del users[user_to_delete]
             save_users(users)
             st.success(f"Utilisateur {user_to_delete} supprimé ✅")
-            st.experimental_rerun()
+            st.rerun()
 
 # ===============================
 # PAGE D’ANALYSE
@@ -106,7 +106,6 @@ def analyse_page():
         time_col = st.selectbox("Colonne Temps", df.columns)
         signal_col = st.selectbox("Colonne Signal", df.columns)
 
-        # Conversion
         df[time_col] = pd.to_numeric(df[time_col], errors="coerce")
         df[signal_col] = pd.to_numeric(df[signal_col], errors="coerce")
         df = df.dropna()
@@ -122,7 +121,6 @@ def analyse_page():
 
         st.success(f"{len(peaks)} pics détectés ✅")
 
-        # Graphique
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=df[time_col], y=df[signal_col], mode="lines", name="Signal"))
         fig.add_trace(go.Scatter(
@@ -134,7 +132,6 @@ def analyse_page():
         ))
         st.plotly_chart(fig, use_container_width=True)
 
-        # Calcul S/N
         st.subheader("📊 Calcul du Signal / Bruit")
         peak_index = st.selectbox("Choisir un pic pour calcul", list(range(len(peaks))))
         peak_pos = peaks[peak_index]
@@ -166,8 +163,5 @@ def main():
     else:
         analyse_page()
 
-# ===============================
-# LANCEMENT
-# ===============================
 if __name__ == "__main__":
     main()
