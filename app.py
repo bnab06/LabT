@@ -1,167 +1,221 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import json
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
-from datetime import datetime
 import plotly.graph_objects as go
+from scipy.signal import find_peaks
+from fpdf import FPDF
+import json
+from datetime import datetime
 import os
 
-# ===============================
-# CONFIGURATION DE L'APPLICATION
-# ===============================
-st.set_page_config(page_title="LabT - Analyse S/N", layout="wide")
+# =========================================================
+# === CONFIGURATION GLOBALE ===
+# =========================================================
+st.set_page_config(page_title="LabT - Analyse S/N & Linéarité", layout="wide")
 
-USERS_FILE = "users.json"
+LANGUAGES = {"Français": "fr", "English": "en"}
 
-# ===============================
-# FONCTIONS D’UTILISATION
-# ===============================
+# =========================================================
+# === FONCTIONS UTILITAIRES ===
+# =========================================================
 def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    else:
-        return {"admin": {"password": "admin123", "role": "admin"}}
+    if not os.path.exists("users.json"):
+        return {}
+    with open("users.json", "r") as f:
+        return json.load(f)
 
 def save_users(users):
-    with open(USERS_FILE, "w") as f:
+    with open("users.json", "w") as f:
         json.dump(users, f, indent=4)
 
-def login():
-    st.title("🔐 Connexion à LabT")
+def check_login(username, password):
     users = load_users()
+    if username in users and users[username]["password"] == password:
+        return users[username]["role"]
+    return None
 
-    username = st.text_input("Nom d’utilisateur")
-    password = st.text_input("Mot de passe", type="password")
+def change_password(username, new_password):
+    users = load_users()
+    if username in users:
+        users[username]["password"] = new_password
+        save_users(users)
+        return True
+    return False
 
-    if st.button("Se connecter"):
-        if username in users and users[username]["password"] == password:
+def add_user(username, password, role="user"):
+    users = load_users()
+    if username in users:
+        return False
+    users[username] = {"password": password, "role": role}
+    save_users(users)
+    return True
+
+def delete_user(username):
+    users = load_users()
+    if username in users:
+        del users[username]
+        save_users(users)
+        return True
+    return False
+
+# =========================================================
+# === CALCULS ===
+# =========================================================
+def calc_linearity(df):
+    x = df["Concentration"].astype(float)
+    y = df["Signal"].astype(float)
+    coeffs = np.polyfit(x, y, 1)
+    slope, intercept = coeffs
+    y_pred = np.polyval(coeffs, x)
+    r2 = np.corrcoef(y, y_pred)[0, 1] ** 2
+    return slope, intercept, r2
+
+def calc_sn(signal, noise):
+    return np.mean(signal) / np.std(noise)
+
+def calc_sn_usp(peak_region, noise_region):
+    signal = np.max(peak_region) - np.min(peak_region)
+    noise = np.std(noise_region)
+    return signal / noise
+
+def calc_lod_loq(slope, std_dev):
+    lod = 3.3 * std_dev / slope
+    loq = 10 * std_dev / slope
+    return lod, loq
+
+# =========================================================
+# === EXPORT PDF ===
+# =========================================================
+def export_pdf(company, user, data_summary, lang):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Rapport d'analyse" if lang == "fr" else "Analysis Report", 0, 1, "C")
+    pdf.ln(10)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 8, f"Entreprise / Company: {company}", 0, 1)
+    pdf.cell(0, 8, f"Utilisateur / User: {user}", 0, 1)
+    pdf.cell(0, 8, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}", 0, 1)
+    pdf.ln(10)
+    pdf.multi_cell(0, 8, data_summary)
+    pdf.output("rapport.pdf")
+    with open("rapport.pdf", "rb") as f:
+        st.download_button("📄 Télécharger le rapport PDF", f, file_name="rapport.pdf")
+
+# =========================================================
+# === INTERFACE ===
+# =========================================================
+def login_screen():
+    st.title("🔬 LabT - Connexion / Login")
+    lang_choice = st.radio("Langue / Language", list(LANGUAGES.keys()))
+    lang = LANGUAGES[lang_choice]
+    username = st.text_input("Nom d'utilisateur / Username")
+    password = st.text_input("Mot de passe / Password", type="password")
+
+    if st.button("Connexion / Login"):
+        role = check_login(username, password)
+        if role:
             st.session_state["user"] = username
-            st.session_state["role"] = users[username]["role"]
-            st.rerun()  # ✅ nouvelle méthode
+            st.session_state["role"] = role
+            st.session_state["lang"] = lang
+            st.rerun()
         else:
-            st.error("Nom d’utilisateur ou mot de passe incorrect.")
+            st.error("Identifiants invalides / Invalid credentials")
 
-def logout():
-    if st.button("🔓 Déconnexion"):
-        for key in ["user", "role"]:
-            if key in st.session_state:
-                del st.session_state[key]
-        st.rerun()  # ✅ correction ici aussi
+def user_panel():
+    lang = st.session_state["lang"]
+    username = st.session_state["user"]
 
-# ===============================
-# INTERFACE ADMIN
-# ===============================
-def admin_page():
-    st.header("👑 Panneau Administrateur")
+    st.sidebar.write(f"👋 {username}")
+    if st.sidebar.button("🔐 Changer mot de passe" if lang == "fr" else "Change Password"):
+        with st.form("pwd_change"):
+            new_pwd = st.text_input("Nouveau mot de passe / New password", type="password")
+            submit = st.form_submit_button("Confirmer / Confirm")
+            if submit:
+                change_password(username, new_pwd)
+                st.success("Mot de passe changé / Password updated")
+
+    st.sidebar.button("🚪 Déconnexion / Logout", on_click=lambda: st.session_state.clear())
+
+def admin_panel():
+    st.subheader("👤 Gestion des utilisateurs / User Management")
     users = load_users()
-
-    st.subheader("Utilisateurs existants")
-    for username, data in users.items():
-        st.write(f"- {username} ({data['role']})")
-
-    st.subheader("➕ Ajouter un nouvel utilisateur")
-    new_user = st.text_input("Nom d’utilisateur")
-    new_pass = st.text_input("Mot de passe", type="password")
-    role = st.selectbox("Rôle", ["user", "admin"])
-
-    if st.button("Créer l’utilisateur"):
-        if new_user in users:
-            st.warning("Cet utilisateur existe déjà.")
-        else:
-            users[new_user] = {"password": new_pass, "role": role}
-            save_users(users)
-            st.success(f"Utilisateur {new_user} ajouté ✅")
+    st.write(users)
+    new_user = st.text_input("Nouvel utilisateur / New username")
+    new_pwd = st.text_input("Mot de passe / Password", type="password")
+    if st.button("Ajouter utilisateur / Add user"):
+        if add_user(new_user, new_pwd):
+            st.success("Utilisateur ajouté / User added")
             st.rerun()
-
-    st.subheader("🗑 Supprimer un utilisateur")
-    user_to_delete = st.selectbox("Choisir un utilisateur", list(users.keys()))
-    if st.button("Supprimer"):
-        if user_to_delete == "admin":
-            st.warning("Impossible de supprimer l’administrateur principal.")
         else:
-            del users[user_to_delete]
-            save_users(users)
-            st.success(f"Utilisateur {user_to_delete} supprimé ✅")
-            st.rerun()
+            st.warning("Utilisateur existe déjà / User already exists")
 
-# ===============================
-# PAGE D’ANALYSE
-# ===============================
-def analyse_page():
-    st.header("📈 Analyse S/N à partir d’un fichier CSV")
+    del_user = st.selectbox("Supprimer utilisateur / Delete user", list(users.keys()))
+    if st.button("Supprimer / Delete"):
+        delete_user(del_user)
+        st.success("Supprimé / Deleted")
+        st.rerun()
 
-    uploaded_file = st.file_uploader("Importer un fichier CSV", type=["csv"])
-    if uploaded_file is not None:
-        try:
-            df = pd.read_csv(uploaded_file, sep=None, engine="python")
-        except Exception:
-            st.error("Erreur de lecture du CSV. Vérifie le séparateur (; ou ,).")
-            return
+def main_app():
+    lang = st.session_state["lang"]
+    st.title("📊 Analyse S/N, Linéarité, LOD et LOQ")
+    company = st.text_input("Entreprise / Company name")
+    uploaded_file = st.file_uploader("Importer fichier CSV / Import CSV", type="csv")
 
-        st.dataframe(df.head())
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.write(df.head())
 
-        time_col = st.selectbox("Colonne Temps", df.columns)
-        signal_col = st.selectbox("Colonne Signal", df.columns)
+        # Linéarité
+        if st.checkbox("Calculer linéarité / Calculate linearity"):
+            slope, intercept, r2 = calc_linearity(df)
+            st.success(f"Slope: {slope:.3f}, Intercept: {intercept:.3f}, R²: {r2:.4f}")
 
-        df[time_col] = pd.to_numeric(df[time_col], errors="coerce")
-        df[signal_col] = pd.to_numeric(df[signal_col], errors="coerce")
-        df = df.dropna()
+        # S/N classique
+        if st.checkbox("Calcul S/N classique"):
+            sig = df["Signal"]
+            noise = sig[:50]
+            sn = calc_sn(sig, noise)
+            st.info(f"S/N classique = {sn:.2f}")
 
-        height_factor = st.slider("Facteur de hauteur pour détection", 0.1, 1.0, 0.3)
-        distance = st.slider("Distance minimale entre pics", 1, 100, 20)
+        # S/N USP
+        if st.checkbox("Calcul S/N USP"):
+            peak = df["Signal"][100:200]
+            noise = df["Signal"][0:50]
+            sn_usp = calc_sn_usp(peak, noise)
+            st.info(f"S/N USP = {sn_usp:.2f}")
 
-        peaks, _ = find_peaks(df[signal_col], height=np.max(df[signal_col]) * height_factor, distance=distance)
+        # LOD / LOQ
+        if st.checkbox("Calcul LOD / LOQ"):
+            slope, _, _ = calc_linearity(df)
+            std_dev = df["Signal"].std()
+            lod, loq = calc_lod_loq(slope, std_dev)
+            st.success(f"LOD: {lod:.4f}, LOQ: {loq:.4f}")
 
-        if len(peaks) == 0:
-            st.warning("⚠️ Aucun pic détecté. Essaie d’ajuster les paramètres.")
-            return
-
-        st.success(f"{len(peaks)} pics détectés ✅")
-
+        # Graph
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df[time_col], y=df[signal_col], mode="lines", name="Signal"))
-        fig.add_trace(go.Scatter(
-            x=df[time_col].iloc[peaks],
-            y=df[signal_col].iloc[peaks],
-            mode="markers",
-            name="Pics détectés",
-            marker=dict(color="red", size=8)
-        ))
+        fig.add_trace(go.Scatter(x=df.iloc[:, 0], y=df.iloc[:, 1], mode='lines', name="Chromatogramme"))
         st.plotly_chart(fig, use_container_width=True)
 
-        st.subheader("📊 Calcul du Signal / Bruit")
-        peak_index = st.selectbox("Choisir un pic pour calcul", list(range(len(peaks))))
-        peak_pos = peaks[peak_index]
+        # Export
+        if st.button("📤 Générer rapport / Generate report"):
+            summary = f"Analyse réalisée par {st.session_state['user']}.\nS/N, linéarité, LOD/LOQ inclus."
+            export_pdf(company, st.session_state["user"], summary, lang)
 
-        signal = df[signal_col].iloc[peak_pos]
-        noise_region = df[signal_col].iloc[max(0, peak_pos - 50):peak_pos]
-        noise = np.std(noise_region)
-
-        sn_ratio = signal / noise if noise != 0 else np.nan
-        st.metric("Rapport Signal / Bruit (S/N)", f"{sn_ratio:.2f}")
-
-# ===============================
-# APPLICATION PRINCIPALE
-# ===============================
+# =========================================================
+# === ROUTAGE PRINCIPAL ===
+# =========================================================
 def main():
     if "user" not in st.session_state:
-        login()
-        return
-
-    st.sidebar.write(f"👋 Connecté en tant que **{st.session_state['user']}** ({st.session_state['role']})")
-    logout()
-
-    if st.session_state["role"] == "admin":
-        page = st.sidebar.selectbox("Navigation", ["Analyse", "Admin"])
-        if page == "Analyse":
-            analyse_page()
-        else:
-            admin_page()
+        login_screen()
     else:
-        analyse_page()
+        user_panel()
+        if st.session_state["role"] == "admin":
+            admin_panel()
+        else:
+            main_app()
 
 if __name__ == "__main__":
     main()
