@@ -11,21 +11,19 @@ from fpdf import FPDF
 import json
 from datetime import datetime
 
-# Initialisation session_state pour éviter erreurs
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'role' not in st.session_state:
-    st.session_state.role = None
-if 'unit' not in st.session_state:
-    st.session_state.unit = ''
-if 'slope' not in st.session_state:
-    st.session_state.slope = None
-if 'intercept' not in st.session_state:
-    st.session_state.intercept = None
-if 'lang' not in st.session_state:
-    st.session_state.lang = 'EN'
-if 'prev_page' not in st.session_state:
-    st.session_state.prev_page = None
+# Initialisation session_state
+for key, default in {
+    "user": None,
+    "role": None,
+    "unit": "",
+    "slope": None,
+    "intercept": None,
+    "lang": "EN",
+    "prev_page": None
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
+
 # ===========================
 # PARTIE 2: UTILISATEURS / LOGIN
 # ===========================
@@ -59,15 +57,18 @@ def login_page():
     password = st.text_input("Password / Mot de passe", type="password")
     if st.button("Login / Connexion"):
         login_action(username, password)
+
 # ===========================
 # PARTIE 3: MENU PRINCIPAL
 # ===========================
 
 def main_menu():
     st.title("Main Menu / Menu Principal")
-    menu_options = ["Unknown calculation / Calcul inconnu", 
-                    "Signal-to-Noise / Rapport S/N", 
-                    "Linearity / Linéarité"]
+    menu_options = [
+        "Unknown calculation / Calcul inconnu",
+        "Signal-to-Noise / Rapport S/N",
+        "Linearity / Linéarité"
+    ]
 
     choice = st.selectbox("Choose option / Choisir une option", menu_options)
 
@@ -81,6 +82,10 @@ def main_menu():
         st.session_state.prev_page = main_menu
         linearity_page()
 
+# ===========================
+# PARTIE 4: PAGES
+# ===========================
+
 def unknown_calculation_page():
     st.subheader("Unknown Calculation / Calcul Inconnu")
     conc = st.number_input("Enter concentration / Entrer la concentration", min_value=0.0)
@@ -88,20 +93,21 @@ def unknown_calculation_page():
     unit = st.text_input("Unit / Unité", st.session_state.unit)
     st.session_state.unit = unit
     if st.button("Calculate / Calculer"):
-        # Ici on garde exactement les mêmes calculs qu'avant
         st.success(f"Concentration: {conc} {unit}, Signal: {signal}")
     if st.button("Back / Retour"):
-        st.session_state.prev_page()
-# ===========================
-# PARTIE 4: S/N, LINÉARITÉ ET PDF
-# ===========================
+        if st.session_state.prev_page:
+            st.session_state.prev_page()
+        else:
+            main_menu()
 
 def sn_page():
     st.subheader("Signal-to-Noise / S/N")
     file = st.file_uploader("Upload CSV / Importer CSV", type=['csv'])
     if file:
         df = pd.read_csv(file)
-        # Calculs S/N exactement comme avant
+        if 'Signal' not in df.columns:
+            st.error("CSV must include a 'Signal' column")
+            return
         sn_classic = df['Signal'].max() / df['Signal'].std()
         st.write(f"Classic S/N: {sn_classic:.2f}")
         peaks, _ = find_peaks(df['Signal'])
@@ -109,14 +115,19 @@ def sn_page():
             sn_usp = df['Signal'][peaks].max() / df['Signal'].std()
             st.write(f"USP S/N: {sn_usp:.2f}")
     if st.button("Back / Retour"):
-        st.session_state.prev_page()
+        if st.session_state.prev_page:
+            st.session_state.prev_page()
+        else:
+            main_menu()
 
 def linearity_page():
     st.subheader("Linearity / Linéarité")
-    # Ici on garde exactement les calculs de pente et intercept qu'avant
     st.info("Coming soon: Option to calculate slope and intercept for LOD/LOQ")
     if st.button("Back / Retour"):
-        st.session_state.prev_page()
+        if st.session_state.prev_page:
+            st.session_state.prev_page()
+        else:
+            main_menu()
 
 def export_pdf():
     pdf = FPDF()
@@ -129,6 +140,7 @@ def export_pdf():
 # ===========================
 # RUN
 # ===========================
+
 if st.session_state.user is None:
     login_page()
 else:
