@@ -5,152 +5,194 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from fpdf import FPDF
-from datetime import datetime
 import json
+from datetime import datetime
 import os
 
-# ----------------- Config -----------------
-st.set_page_config(page_title="LabT App", layout="wide")
+# -------------------------------
+# Constants and Config
+# -------------------------------
+USER_FILE = "users.json"
+PDF_LOGO = "logo.png"
 
-# ----------------- Utils -----------------
-def t(fr, en):
-    lang = st.session_state.get("lang", "FR")
-    return fr if lang == "FR" else en
-
-# ----------------- Session State -----------------
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "lang" not in st.session_state:
-    st.session_state.lang = "FR"
-
-# ----------------- Users -----------------
-USERS_FILE = "users.json"
+# -------------------------------
+# Helper Functions
+# -------------------------------
 
 def load_users():
-    if not os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "w") as f:
-            json.dump({"admin":{"password":"admin"}}, f)
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
+    if not os.path.exists(USER_FILE):
+        # Default admin user
+        users = {"admin": {"password": "admin", "role": "admin"}}
+        with open(USER_FILE, "w") as f:
+            json.dump(users, f)
+    else:
+        with open(USER_FILE, "r") as f:
+            users = json.load(f)
+    return users
 
 def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=2)
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
-# ----------------- Authentication -----------------
-def login_screen():
-    st.title(t("Connexion", "Login"))
-    col1, col2 = st.columns(2)
-    with col1:
-        username = st.text_input(t("Nom d'utilisateur", "Username")).lower()
-    with col2:
-        password = st.text_input(t("Mot de passe", "Password"), type="password")
-    if st.button(t("Se connecter", "Login")):
-        users = load_users()
-        if username in users and users[username]["password"] == password:
-            st.session_state.logged_in = True
-            st.session_state.user = username
-            st.experimental_rerun()
-        else:
-            st.error(t("Nom d’utilisateur ou mot de passe incorrect", "Wrong username or password"))
-
-def logout():
-    if st.button(t("Se déconnecter", "Logout")):
-        st.session_state.logged_in = False
-        st.session_state.user = None
-        st.experimental_rerun()
-
-# ----------------- Admin -----------------
-def admin_page():
-    st.header(t("Administration", "Admin Panel"))
-    logout()
-    st.subheader(t("Ajouter un utilisateur", "Add User"))
-    new_user = st.text_input(t("Nom d'utilisateur", "Username"))
-    new_pass = st.text_input(t("Mot de passe", "Password"), type="password")
-    if st.button(t("Ajouter", "Add")):
-        if new_user and new_pass:
-            users = load_users()
-            users[new_user.lower()] = {"password": new_pass}
-            save_users(users)
-            st.success(t("Utilisateur ajouté", "User added"))
-    st.subheader(t("Liste des utilisateurs", "Users List"))
+def check_login(username, password):
     users = load_users()
-    for u in users:
-        st.write(u)
+    username_lower = username.lower()
+    for user, info in users.items():
+        if user.lower() == username_lower and info["password"] == password:
+            return info["role"]
+    return None
 
-# ----------------- User -----------------
-def change_password():
-    st.subheader(t("Changer mot de passe", "Change Password"))
-    old = st.text_input(t("Ancien mot de passe", "Old Password"), type="password")
-    new = st.text_input(t("Nouveau mot de passe", "New Password"), type="password")
-    if st.button(t("Valider", "Submit")):
-        users = load_users()
-        uname = st.session_state.user
-        if users[uname]["password"] == old:
-            users[uname]["password"] = new
+def create_pdf_report(title, user, company, date, fig=None, filename="report.pdf"):
+    pdf = FPDF()
+    pdf.add_page()
+    if os.path.exists(PDF_LOGO):
+        pdf.image(PDF_LOGO, x=10, y=8, w=30)
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, title, ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    pdf.ln(10)
+    pdf.cell(0, 10, f"User: {user}", ln=True)
+    pdf.cell(0, 10, f"Company: {company}", ln=True)
+    pdf.cell(0, 10, f"Date: {date}", ln=True)
+    if fig is not None:
+        fig_file = "temp_plot.png"
+        fig.savefig(fig_file)
+        pdf.image(fig_file, x=10, y=70, w=190)
+        os.remove(fig_file)
+    pdf.output(filename)
+    st.success(f"Report saved as {filename}")
+
+# -------------------------------
+# User Management
+# -------------------------------
+
+def admin_screen(current_user):
+    st.title("Admin Panel / Panneau Admin")
+    users = load_users()
+    st.subheader("Manage Users / Gérer les utilisateurs")
+    for user, info in users.items():
+        st.write(f"{user} ({info['role']})")
+    new_user = st.text_input("New username / Nouvel utilisateur")
+    new_pass = st.text_input("Password / Mot de passe", type="password")
+    new_role = st.selectbox("Role / Rôle", ["user", "admin"])
+    if st.button("Add User / Ajouter"):
+        if new_user and new_pass:
+            users[new_user] = {"password": new_pass, "role": new_role}
             save_users(users)
-            st.success(t("Mot de passe changé", "Password changed"))
-        else:
-            st.error(t("Ancien mot de passe incorrect", "Old password incorrect"))
+            st.success(f"User {new_user} added!")
+            st.experimental_rerun()
 
-# ----------------- Linearity -----------------
+def change_password(username):
+    users = load_users()
+    st.subheader("Change Password / Changer mot de passe")
+    old_pass = st.text_input("Current password / Mot de passe actuel", type="password")
+    new_pass = st.text_input("New password / Nouveau mot de passe", type="password")
+    if st.button("Change / Changer"):
+        if old_pass == users[username]["password"]:
+            users[username]["password"] = new_pass
+            save_users(users)
+            st.success("Password changed!")
+        else:
+            st.error("Wrong current password / Mot de passe actuel incorrect")
+
+# -------------------------------
+# Linéarité
+# -------------------------------
+
 def linearity_screen():
-    st.header(t("Linéarité", "Linearity"))
-    option = st.radio(t("Choisissez la méthode", "Choose input method"), [t("Saisie manuelle", "Manual"), t("Importer CSV", "Upload CSV")])
-    if option == t("Saisie manuelle", "Manual"):
-        conc = st.text_area(t("Concentrations séparées par virgule", "Concentrations comma-separated"))
-        sig = st.text_area(t("Signaux séparés par virgule", "Signals comma-separated"))
-        if st.button(t("Calculer", "Calculate")):
-            try:
-                x = np.array([float(i) for i in conc.split(",")])
-                y = np.array([float(i) for i in sig.split(",")])
-                slope, intercept = np.polyfit(x, y, 1)
-                r2 = np.corrcoef(x, y)[0,1]**2
-                st.write(f"{t('Pente', 'Slope')}: {slope}, {t('Intercept', 'Intercept')}: {intercept}, R²: {r2}")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=x, y=y, mode='markers', name='Data'))
-                fig.add_trace(go.Scatter(x=x, y=slope*x+intercept, mode='lines', name='Fit'))
-                st.plotly_chart(fig)
-            except:
-                st.error(t("Erreur dans les données", "Data error"))
-    else:
-        uploaded_file = st.file_uploader(t("Importer CSV", "Upload CSV"), type=["csv"])
+    st.subheader("Linearity / Linéarité")
+    choice = st.radio("Choose input / Choisir saisie", ["CSV", "Manual / Manuel"])
+    if choice == "CSV":
+        uploaded_file = st.file_uploader("Upload CSV / Importer CSV", type=["csv"])
         if uploaded_file:
             df = pd.read_csv(uploaded_file)
-            if "Concentration" in df.columns and "Signal" in df.columns:
-                x = df["Concentration"].values
-                y = df["Signal"].values
-                slope, intercept = np.polyfit(x, y, 1)
-                r2 = np.corrcoef(x, y)[0,1]**2
-                st.write(f"{t('Pente', 'Slope')}: {slope}, {t('Intercept', 'Intercept')}: {intercept}, R²: {r2}")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=x, y=y, mode='markers', name='Data'))
-                fig.add_trace(go.Scatter(x=x, y=slope*x+intercept, mode='lines', name='Fit'))
-                st.plotly_chart(fig)
-            else:
-                st.error(t("CSV doit contenir 'Concentration' et 'Signal'", "CSV must contain 'Concentration' and 'Signal'"))
+    else:
+        n = st.number_input("Number of points / Nombre de points", min_value=2, step=1)
+        data = {}
+        concentrations = []
+        signals = []
+        for i in range(int(n)):
+            c = st.number_input(f"Concentration {i+1}", key=f"c{i}")
+            s = st.number_input(f"Signal {i+1}", key=f"s{i}")
+            concentrations.append(c)
+            signals.append(s)
+        if concentrations and signals:
+            df = pd.DataFrame({"Concentration": concentrations, "Signal": signals})
+    
+    if 'df' in locals():
+        x = df["Concentration"].values
+        y = df["Signal"].values
+        # Linear fit
+        slope, intercept = np.polyfit(x, y, 1)
+        r2 = np.corrcoef(x, y)[0,1]**2
+        st.write(f"Slope / Pente: {slope}, Intercept / Ordonnée à l'origine: {intercept}, R²: {r2}")
+        fig, ax = plt.subplots()
+        ax.scatter(x, y)
+        ax.plot(x, slope*x + intercept, color="red")
+        ax.set_xlabel("Concentration")
+        ax.set_ylabel("Signal")
+        st.pyplot(fig)
+        return slope, intercept
 
-# ----------------- Main -----------------
+# -------------------------------
+# S/N
+# -------------------------------
+
+def sn_screen():
+    st.subheader("Signal / Noise Calculation")
+    uploaded_file = st.file_uploader("Upload chromatogram CSV / Importer CSV", type=["csv", "png", "pdf"])
+    if uploaded_file:
+        st.success("File uploaded!")
+        # Logic to parse CSV or display PNG/PDF would go here
+        # For simplicity, we show CSV example
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+            st.line_chart(df)
+        st.info("S/N calculation can now be done on selected region")
+
+# -------------------------------
+# Main Screens
+# -------------------------------
+
+def user_screen(username):
+    st.title(f"User Panel / Panneau Utilisateur ({username})")
+    if st.button("Change Password / Changer mot de passe"):
+        change_password(username)
+    menu = st.radio("Menu", ["Linearity / Linéarité", "S/N Calculation / S/N", "Logout / Déconnexion"])
+    if menu.startswith("Linearity"):
+        linearity_screen()
+    elif menu.startswith("S/N"):
+        sn_screen()
+    elif menu.startswith("Logout"):
+        logout()
+
+def login_screen():
+    st.title("Login / Connexion")
+    username = st.text_input("Username / Nom d'utilisateur")
+    password = st.text_input("Password / Mot de passe", type="password")
+    if st.button("Login / Connexion"):
+        role = check_login(username, password)
+        if role:
+            st.session_state['username'] = username
+            st.session_state['role'] = role
+            st.experimental_rerun()
+        else:
+            st.error("Wrong username or password / Nom d'utilisateur ou mot de passe incorrect")
+
+def logout():
+    st.session_state.clear()
+    st.experimental_rerun()
+
 def main():
-    st.sidebar.title("Lang")
-    if st.sidebar.button("FR"):
-        st.session_state.lang = "FR"
-    if st.sidebar.button("EN"):
-        st.session_state.lang = "EN"
-
-    if not st.session_state.logged_in:
+    if "username" not in st.session_state:
         login_screen()
     else:
-        if st.session_state.user.lower() == "admin":
-            admin_page()
+        if st.session_state["role"] == "admin":
+            admin_screen(st.session_state["username"])
+            if st.button("Logout / Déconnexion"):
+                logout()
         else:
-            st.header(f"{t('Bienvenue', 'Welcome')}, {st.session_state.user}")
-            logout()
-            change_password()
-            linearity_screen()
-            st.info(t("Fonctionnalités S/N et LOD/LOQ à ajouter ici", "S/N and LOD/LOQ functionalities here"))
+            user_screen(st.session_state["username"])
 
 if __name__ == "__main__":
     main()
