@@ -1,5 +1,6 @@
-streamlit
-pandas
-numpy
-plotly
-fpdf
+streamlit==1.39.0
+pandas==2.2.2
+numpy==1.26.4
+matplotlib==3.8.0
+plotly==5.20.0
+fpdf==1.7.2
