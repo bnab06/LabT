@@ -1,26 +1,20 @@
-# LabT — Streamlit application
+# LabT - Streamlit App
 
-Small QC / lab helper:
-- Linearity (manual input or CSV) — slope, intercept, R², compute unknown concentration or signal.
-- Signal-to-noise (S/N) (CSV, PNG or PDF display). Choose baseline window; compute classic S/N and USP S/N. Convert LOD/LOQ to concentration using linearity slope.
-- Admin: user management (add/modify/delete).
-- Users can change their password.
-- Bilingual: English (default) and French.
-- Export simple reports to PDF (logo `labt_logo.png` required).
+Petit outil LabT pour :
+- Courbe de linéarité (saisie manuelle ou CSV)
+- Calcul Signal-to-Noise (CSV) avec choix de la région de bruit
+- Export de rapports PDF (avec le nom de la compagnie)
+- Authentification simple (admin + users), admin gère uniquement les utilisateurs
+- Bilingue (English default / Français)
 
-## Files
-- `app.py` — main application
-- `requirements.txt`
-- `labt_logo.png` — put your logo here (optional)
-- `users.json` — created automatically with sample users (`admin`, `bb`, `user`)
+## Fichiers principaux
+- `app.py` : application Streamlit complète
+- `users.json` : utilisateurs initiaux (admin, user1, user2)
+- `requirements.txt` : dépendances recommandées
 
-## Quick start (local)
-1. Create a virtualenv with Python 3.11+.
-2. `pip install -r requirements.txt`
-3. Place `labt_logo.png` next to `app.py` (optional).
-4. `streamlit run app.py`
-
-## Notes
-- If running on Streamlit Cloud, adjust `requirements.txt` versions if installation issues appear.
-- For PDF preview, `pdf2image` requires `poppler`.
-- If you upload PNG/PDF chromatograms and you want automatic numeric extraction, that is out-of-scope here; instead the app displays the image and allows manual numeric entry for S/N computation.
+## Installation (local)
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
