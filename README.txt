@@ -1,18 +1,26 @@
-# 🔬 LabT
+# LabT - Streamlit App
 
-Application Streamlit pour la gestion et l’analyse de données de laboratoire :
-- Linéarité (avec régression, R², et calculs d’inconnus)
-- Calcul du rapport Signal/Bruit (S/N)
-- Calcul automatique de LOD et LOQ
-- Gestion utilisateurs (ajout, suppression, modification)
-- Export PDF des résultats
-- Authentification avec rôles (admin / utilisateur)
+## Files
+- app.py : main Streamlit application
+- requirements.txt : required Python packages
+- users.json : default users and credentials
 
----
+## Default users
+- admin / admin  (admin, can manage users)
+- user1 / 1234   (user)
+- user2 / abcd   (user)
 
-## 🚀 Installation locale
+## Deploy / Local
+1. Create a virtual environment (recommended)
+2. Install requirements:
+   pip install -r requirements.txt
+3. Run:
+   streamlit run app.py
 
-1. Cloner ou décompresser le dossier du projet :
-   ```bash
-   git clone <ton_repo>
-   cd labt
+## Notes
+- The app supports bilingual UI (EN/FR).
+- Admin page: add/modify/delete users.
+- Users can change their password.
+- Linearity: manual input or CSV upload. Shows fit, R², equation.
+- S/N: upload chromatogram CSV (Time & Signal), choose baseline region to compute noise, S/N, LOD/LOQ. Option to convert LOD/LOQ to concentration if a slope from a linearity is present.
+- Export PDF: includes report text and embedded plot PNG.
