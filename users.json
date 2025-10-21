@@ -4,11 +4,11 @@
     "role": "admin"
   },
   "user1": {
-    "password": "1234",
+    "password": "user1",
     "role": "user"
   },
   "user2": {
-    "password": "abcd",
+    "password": "user2",
     "role": "user"
   }
 }
