@@ -1,45 +1,39 @@
-# LabT – Application de calculs chromatographiques / Chromatography Calculation App
+# LabT - Streamlit Application
 
-**LabT** est une application Streamlit pour la gestion de données chromatographiques, calculs de linéarité et de signal sur bruit (S/N), et génération de rapports PDF. L’application est bilingue (FR/EN).
+**LabT** est une application complète pour les analyses de linéarité et de signal/bruit (S/N), avec gestion des utilisateurs et export PDF.
 
----
+## Fonctionnalités
 
-## Fonctionnalités principales / Main features
+### Pour tous les utilisateurs
+- Connexion (login case-insensitive)
+- Langue bilingue (FR / EN)
+- Calcul de linéarité
+  - Saisie manuelle ou import CSV
+  - Calcul automatique de l’équation et R²
+  - Estimation d’inconnues (concentration ou signal)
+  - Export PDF avec graphique et logo
+- Calcul S/N (classique et USP)
+  - Upload de chromatogrammes CSV (`Time`, `Signal`)
+  - Calcul de LOD / LOQ
+  - Conversion en concentration si linéarité disponible
+  - Export PDF du rapport et du graphique
 
-### Connexion / Login
-- Nom d’utilisateur insensible à la casse / Case-insensitive username
-- Gestion des utilisateurs par l’admin / Admin user management
+### Pour l’administrateur
+- Gestion complète des utilisateurs
+  - Ajouter / Modifier / Supprimer
+- Seul l’admin peut gérer les rôles et mots de passe
 
-### Menu Utilisateur / User Panel
-- **Linéarité / Linearity**
-  - Possibilité d’utiliser **CSV** ou **saisie manuelle / manual input**
-  - Calcul de la **pente**, **intercept** et **R²**
-  - Graphique interactif des points et de la régression
-  - Possibilité de calculer **concentration inconnue à partir du signal** et vice versa
+### Pour les utilisateurs
+- Changement de mot de passe personnel
 
-- **S/N classique / Signal-to-noise**
-  - Téléversement de chromatogrammes **CSV**
-  - Calcul automatique S/N avec choix de la zone
-  - Possibilité de télécharger les graphiques **PDF** ou **PNG**
-
-- **S/N USP**
-  - Utilisation de la pente de linéarité pour calculer **LOQ** et **LOD** en concentration
-
-- **Rapports PDF**
-  - Ajout du logo **LabT**
-  - Informations : nom de l’entreprise, utilisateur, date
-  - Téléchargement en PDF
-
-- **Changer mot de passe / Change password**
-  - Bouton pour modification sécurisée du mot de passe
-
----
+## Fichiers principaux
+- `app.py` : script principal Streamlit
+- `users.json` : base utilisateurs
+- `requirements.txt` : packages Python nécessaires
+- `logo.png` : logo LabT pour les PDF (optionnel)
 
 ## Installation
 
-1. Créer un environnement Python (3.11 recommandé) :
-
 ```bash
-python -m venv venv
-source venv/bin/activate  # Linux / Mac
-venv\Scripts\activate     # Windows
+pip install -r requirements.txt
+streamlit run app.py
