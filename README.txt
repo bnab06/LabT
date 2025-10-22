@@ -1,20 +1,28 @@
 # LabT - Streamlit App
 
-Petit outil LabT pour :
-- Courbe de linéarité (saisie manuelle ou CSV)
-- Calcul Signal-to-Noise (CSV) avec choix de la région de bruit
-- Export de rapports PDF (avec le nom de la compagnie)
-- Authentification simple (admin + users), admin gère uniquement les utilisateurs
-- Bilingue (English default / Français)
+Petit outil analytique LabT pour :
+- 📈 **Courbe de linéarité** (saisie manuelle ou CSV)
+- 📊 **Calcul du rapport Signal / Bruit (S/N)** :
+  - Traditionnel et USP
+  - Import possible de chromatogrammes (CSV, PDF, PNG)
+  - Sélection de zone de bruit
+- 📄 **Export PDF** avec le nom de la compagnie
+- 👤 **Authentification** :
+  - Admin = gère uniquement les utilisateurs
+  - User = utilise les outils analytiques et peut changer son mot de passe
+- 🌐 **Bilingue** : anglais par défaut / français en option
 
-## Fichiers principaux
-- `app.py` : application Streamlit complète
-- `users.json` : utilisateurs initiaux (admin, user1, user2)
-- `requirements.txt` : dépendances recommandées
+---
 
-## Installation (local)
+## ⚙️ Installation locale
+
 ```bash
+# Créer l'environnement
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # ou .venv\Scripts\activate sous Windows
+
+# Installer les dépendances
 pip install -r requirements.txt
+
+# Lancer l'application
 streamlit run app.py
