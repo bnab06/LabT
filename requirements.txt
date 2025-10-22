@@ -1,24 +1,21 @@
-# Streamlit version compatible avec Python 3.11
+# Streamlit compatible avec Python 3.11
 streamlit==1.39.0
 
-# Pandas et Numpy versions stables pour Python 3.11
+# Gestion de données
 pandas==2.2.2
 numpy==1.26.4
 
-# Packages utiles pour calculs et graphiques
+# Graphiques
 matplotlib==3.8.1
 plotly==5.16.0
 scipy==1.11.1
 
-# Pour PDF et traitement de fichiers
+# PDF et images
 fpdf==1.7.2
 Pillow==10.1.0
 
-# Pour amélioration de l'affichage Streamlit
-rich==14.2.0
+# Streamlit amélioration affichage (compatible Streamlit 1.39.0)
+rich<14
 markdown-it-py==4.0.0
 mdurl==0.1.2
 pygments==2.19.2
-
-# Optionnel : pour parsing CSV ou JSON plus robuste
-python-dateutil==2.9.2
