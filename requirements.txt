@@ -6,7 +6,7 @@ plotly==5.16.0
 scipy==1.11.1
 fpdf==1.7.2
 Pillow==10.1.0
-rich==13.4.3
+rich==14.2.0
 markdown-it-py==4.0.0
 mdurl==0.1.2
 pygments==2.19.2
