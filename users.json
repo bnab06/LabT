@@ -1,17 +1,10 @@
 {
-    "admin": {
-        "password": "admin",
-        "role": "admin",
-        "company": "LabT"
-    },
-    "user1": {
-        "password": "user1",
-        "role": "user",
-        "company": "LabT"
-    },
-    "user2": {
-        "password": "user2",
-        "role": "user",
-        "company": "LabT"
-    }
+  "admin": {
+    "password": "admin",
+    "role": "admin"
+  },
+  "user": {
+    "password": "user",
+    "role": "user"
+  }
 }
