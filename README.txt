@@ -1,28 +1,20 @@
-# LabT - Streamlit App
+# LabT
 
-Petit outil analytique LabT pour :
-- 📈 **Courbe de linéarité** (saisie manuelle ou CSV)
-- 📊 **Calcul du rapport Signal / Bruit (S/N)** :
-  - Traditionnel et USP
-  - Import possible de chromatogrammes (CSV, PDF, PNG)
-  - Sélection de zone de bruit
-- 📄 **Export PDF** avec le nom de la compagnie
-- 👤 **Authentification** :
-  - Admin = gère uniquement les utilisateurs
-  - User = utilise les outils analytiques et peut changer son mot de passe
-- 🌐 **Bilingue** : anglais par défaut / français en option
+**LabT** est une application Streamlit pour l’analyse analytique en chromatographie et spectrométrie. Elle permet :  
+
+- La saisie ou l’import de données pour **linéarité**.  
+- Le calcul **Signal ↔ Concentration**.  
+- Le calcul **S/N classique et USP** à partir d’un CSV.  
+- Le calcul **LOD et LOQ** en concentration basé sur la pente de la courbe de linéarité.  
+- L’affichage de chromatogrammes depuis CSV ou image.  
 
 ---
 
-## ⚙️ Installation locale
+## 🚀 Installation
 
+**Pré-requis :** Python ≥ 3.11  
+
+1. Cloner le dépôt :  
 ```bash
-# Créer l'environnement
-python -m venv .venv
-source .venv/bin/activate  # ou .venv\Scripts\activate sous Windows
-
-# Installer les dépendances
-pip install -r requirements.txt
-
-# Lancer l'application
-streamlit run app.py
+git clone <URL_DU_DEPOT>
+cd labt
