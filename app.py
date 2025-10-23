@@ -4,168 +4,210 @@ import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 import json
-import os
+from io import BytesIO
 
-# -----------------------------
+# -------------------
 # Gestion des utilisateurs
-# -----------------------------
-USERS_FILE = "users.json"
+# -------------------
+USER_FILE = "users.json"
 
-if not os.path.exists(USERS_FILE):
-    # Créer un fichier users par défaut
-    default_users = {
-        "admin": {"password": "adminpass", "role": "admin"},
-        "user1": {"password": "user1pass", "role": "user"}
-    }
-    with open(USERS_FILE, "w") as f:
-        json.dump(default_users, f, indent=4)
+def load_users():
+    try:
+        with open(USER_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"admin": {"password": "admin123", "role": "admin"}}
 
-with open(USERS_FILE, "r") as f:
-    USERS = json.load(f)
+def save_users(users):
+    with open(USER_FILE, "w") as f:
+        json.dump(users, f)
 
-# Session pour user
-if "user" not in st.session_state:
-    st.session_state["user"] = None
+users = load_users()
 
-# -----------------------------
+# -------------------
 # Login
-# -----------------------------
-def login():
-    st.title("Connexion")
-    username = st.text_input("Utilisateur", key="login_user")
-    password = st.text_input("Mot de passe", type="password", key="login_pass")
-    if st.button("Se connecter"):
-        if username in USERS and USERS[username]["password"] == password:
-            st.session_state["user"] = username
-            st.success(f"Connecté en tant que {username}")
+# -------------------
+def login_area():
+    st.title("LabT - Login / Connexion")
+    username = st.text_input("Utilisateur / Username")
+    password = st.text_input("Mot de passe / Password", type="password")
+    login = st.button("Se connecter / Login")
+    if login:
+        if username in users and users[username]["password"] == password:
+            st.session_state["username"] = username
+            st.session_state["role"] = users[username]["role"]
         else:
-            st.error("Utilisateur ou mot de passe invalide")
+            st.error("Utilisateur ou mot de passe invalide / Invalid username or password")
 
-# -----------------------------
-# Changer mot de passe (users)
-# -----------------------------
-def change_password():
-    st.subheader("Changer le mot de passe")
-    old_pass = st.text_input("Ancien mot de passe", type="password", key="old_pass")
-    new_pass = st.text_input("Nouveau mot de passe", type="password", key="new_pass")
-    confirm_pass = st.text_input("Confirmer nouveau mot de passe", type="password", key="confirm_pass")
+def logout():
+    st.session_state.pop("username", None)
+    st.session_state.pop("role", None)
+    st.experimental_rerun()
 
-    if st.button("Valider changement", key="change_pass_btn"):
-        username = st.session_state["user"]
-        if USERS[username]["password"] != old_pass:
-            st.error("Ancien mot de passe incorrect")
-        elif new_pass != confirm_pass:
-            st.error("Les nouveaux mots de passe ne correspondent pas")
-        else:
-            USERS[username]["password"] = new_pass
-            with open(USERS_FILE, "w") as f:
-                json.dump(USERS, f, indent=4)
-            st.success("Mot de passe changé avec succès")
+# -------------------
+# PDF
+# -------------------
+def create_pdf(title, data, company_name):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, f"{title} - {company_name}", ln=True)
+    pdf.ln(10)
+    pdf.set_font("Arial", '', 12)
+    for line in data:
+        pdf.cell(0, 8, line, ln=True)
+    return pdf
 
-# -----------------------------
-# Application principale
-# -----------------------------
+# -------------------
+# Calcul linéarité
+# -------------------
 def linearity_tab():
-    st.header("Linéarité")
-    input_type = st.radio("Choisir le type de saisie:", ["CSV", "Saisie manuelle"])
+    st.header("Linéarité / Linearity")
+    input_type = st.radio("Choisir méthode / Choose method", ["CSV", "Saisie manuelle / Manual entry"])
     
-    if input_type == "CSV":
-        file = st.file_uploader("Importer CSV", type=["csv"])
+    if input_type.startswith("CSV"):
+        file = st.file_uploader("Importer CSV / Upload CSV", type="csv")
         if file:
             df = pd.read_csv(file)
-            st.dataframe(df)
+            if df.shape[1] < 2:
+                st.error("Le CSV doit contenir au moins deux colonnes / CSV must have at least two columns")
+                return
             x = df.iloc[:,0].values
             y = df.iloc[:,1].values
     else:
-        x_text = st.text_input("Valeurs de concentration (séparées par des virgules)")
-        y_text = st.text_input("Valeurs de signal (séparées par des virgules)")
+        x_text = st.text_input("Concentrations séparées par ',' / Concentrations separated by ','")
+        y_text = st.text_input("Signaux séparés par ',' / Signals separated by ','")
         if x_text and y_text:
-            x = np.array([float(i) for i in x_text.split(",")])
-            y = np.array([float(i) for i in y_text.split(",")])
-
+            x = np.array([float(v.strip()) for v in x_text.split(",")])
+            y = np.array([float(v.strip()) for v in y_text.split(",")])
+    
     if 'x' in locals() and 'y' in locals():
-        # Régression linéaire
-        A = np.vstack([x, np.ones(len(x))]).T
-        m, c = np.linalg.lstsq(A, y, rcond=None)[0]
-        r2 = np.corrcoef(x, y)[0,1]**2
+        # Ajustement linéaire
+        try:
+            coeffs = np.polyfit(x, y, 1)
+            slope, intercept = coeffs
+            y_fit = slope * x + intercept
+            r2 = np.corrcoef(y, y_fit)[0,1]**2
+            st.line_chart(pd.DataFrame({"x":x, "y":y, "fit":y_fit}).set_index("x"))
+            st.write(f"Slope / Pente: {slope:.4f}, R²: {r2:.4f}")
+            
+            # Calcul concentration inconnue automatiquement
+            y_unknown = st.number_input("Signal inconnu / Unknown signal")
+            if y_unknown != 0:
+                c_unknown = (y_unknown - intercept)/slope
+                st.write(f"Concentration inconnue / Unknown concentration: {c_unknown:.4f}")
+            
+            # Export PDF
+            company_name = st.text_input("Nom compagnie / Company name")
+            export_pdf = st.button("Exporter PDF / Export PDF")
+            if export_pdf:
+                if not company_name:
+                    st.warning("Veuillez entrer le nom de la compagnie / Enter company name")
+                else:
+                    data = [f"Slope / Pente: {slope:.4f}", f"R²: {r2:.4f}"]
+                    pdf = create_pdf("Rapport Linéarité / Linearity Report", data, company_name)
+                    pdf.output("linearity_report.pdf")
+                    st.success("PDF exporté / PDF exported")
+        except Exception as e:
+            st.error(f"Erreur calcul linéarité / Linearity calculation error: {e}")
 
-        st.write(f"Pente: {m:.4f}")
-        st.write(f"Ordonnée à l'origine: {c:.4f}")
-        st.write(f"R²: {r2:.4f}")
-
-        # Plot
-        fig, ax = plt.subplots()
-        ax.scatter(x, y, label="Données")
-        ax.plot(x, m*x + c, color='red', label="Fit linéaire")
-        ax.set_xlabel("Concentration (µg/mL)")
-        ax.set_ylabel("Signal")
-        ax.legend()
-        st.pyplot(fig)
-
-        # Calcul concentration ou signal inconnu
-        val_unknown = st.number_input("Entrer signal ou concentration inconnue")
-        mode = st.radio("Calculer:", ["Concentration", "Signal"])
-        if mode == "Concentration":
-            conc = (val_unknown - c)/m
-            st.write(f"Concentration inconnue: {conc:.4f} µg/mL")
-        else:
-            signal = m*val_unknown + c
-            st.write(f"Signal correspondant: {signal:.4f}")
-
-        # Export PDF
-        company = st.text_input("Nom de la compagnie pour le rapport PDF", "Ma compagnie")
-        if st.button("Exporter rapport linéarité"):
-            pdf = FPDF()
-            pdf.add_page()
-            pdf.set_font("Arial", size=12)
-            pdf.cell(200, 10, f"Rapport de linéarité - {company}", ln=True, align='C')
-            pdf.ln(10)
-            pdf.cell(200, 10, f"Pente: {m:.4f}", ln=True)
-            pdf.cell(200, 10, f"Ordonnée à l'origine: {c:.4f}", ln=True)
-            pdf.cell(200, 10, f"R²: {r2:.4f}", ln=True)
-            pdf.output("rapport_linearity.pdf")
-            st.success("Rapport PDF généré: rapport_linearity.pdf")
+# -------------------
+# Calcul S/N
+# -------------------
+def calculate_sn(signal, baseline=None):
+    if baseline is None:
+        baseline = np.min(signal)
+    noise = np.std(signal - baseline)
+    sn_classic = (np.max(signal) - baseline) / noise if noise != 0 else np.nan
+    sn_usp = np.max(signal) / noise if noise != 0 else np.nan
+    return sn_classic, sn_usp
 
 def sn_tab():
-    st.header("Signal / Bruit (S/N)")
-    input_type = st.radio("Importer:", ["CSV", "Image (png/pdf)"])
-    st.info("Zone de sélection et calcul S/N à implémenter selon vos besoins")
-
-# -----------------------------
-# Menu Admin
-# -----------------------------
-def admin_tab():
-    st.header("Gestion des utilisateurs (Admin)")
-    st.info("Ajouter, supprimer ou modifier un utilisateur")
-    # Exemple simple
-    new_user = st.text_input("Nom utilisateur")
-    new_pass = st.text_input("Mot de passe", type="password")
-    role = st.selectbox("Rôle", ["user", "admin"])
-    if st.button("Ajouter utilisateur"):
-        if new_user in USERS:
-            st.error("Utilisateur existe déjà")
+    st.header("S/N")
+    file = st.file_uploader("Importer CSV, PNG ou PDF / Upload CSV, PNG or PDF", type=["csv","png","pdf"])
+    if file:
+        df_sn = None
+        if file.name.endswith(".csv"):
+            df_sn = pd.read_csv(file)
+            st.line_chart(df_sn)
         else:
-            USERS[new_user] = {"password": new_pass, "role": role}
-            with open(USERS_FILE, "w") as f:
-                json.dump(USERS, f, indent=4)
-            st.success(f"Utilisateur {new_user} ajouté")
+            st.write("Aperçu PNG/PDF non implémenté / Preview not implemented")
+        
+        if df_sn is not None:
+            signal_col = st.selectbox("Colonne signal / Signal column", df_sn.columns)
+            signal = df_sn[signal_col].values
+            start_idx = st.number_input("Début zone / Start index", min_value=0, max_value=len(signal)-1, value=0)
+            end_idx = st.number_input("Fin zone / End index", min_value=1, max_value=len(signal), value=len(signal))
+            
+            if end_idx > start_idx:
+                selected_signal = signal[start_idx:end_idx]
+                sn_classic, sn_usp = calculate_sn(selected_signal)
+                st.write(f"S/N Classique / Classic: {sn_classic:.2f}")
+                st.write(f"S/N USP: {sn_usp:.2f}")
+                
+                company_name = st.text_input("Nom compagnie / Company name")
+                export_pdf = st.button("Exporter PDF / Export PDF")
+                if export_pdf:
+                    if not company_name:
+                        st.warning("Veuillez entrer le nom de la compagnie / Enter company name")
+                    else:
+                        data = [f"S/N Classique / Classic: {sn_classic:.2f}", f"S/N USP: {sn_usp:.2f}"]
+                        pdf = create_pdf("S/N Report", data, company_name)
+                        pdf.output("sn_report.pdf")
+                        st.success("PDF exporté / PDF exported")
+    st.button("Retour au menu / Back to menu")
 
-# -----------------------------
-# Main
-# -----------------------------
-if st.session_state["user"] is None:
-    login()
-else:
-    user_role = USERS[st.session_state["user"]]["role"]
-    st.write(f"Connecté en tant que {st.session_state['user']} ({user_role})")
-    
-    if user_role == "admin":
-        admin_tab()
+# -------------------
+# Changement mot de passe user
+# -------------------
+def change_password_tab():
+    st.header("Changer mot de passe / Change password")
+    old_pw = st.text_input("Ancien mot de passe / Old password", type="password")
+    new_pw = st.text_input("Nouveau mot de passe / New password", type="password")
+    confirm_pw = st.text_input("Confirmer / Confirm", type="password")
+    if st.button("Changer / Change"):
+        username = st.session_state.get("username")
+        if username and users[username]["password"] == old_pw:
+            if new_pw == confirm_pw:
+                users[username]["password"] = new_pw
+                save_users(users)
+                st.success("Mot de passe changé / Password changed")
+            else:
+                st.error("Les mots de passe ne correspondent pas / Passwords do not match")
+        else:
+            st.error("Ancien mot de passe incorrect / Old password incorrect")
+    st.button("Retour au menu / Back to menu")
+
+# -------------------
+# Menu principal
+# -------------------
+def main_app():
+    st.title("LabT")
+    if st.session_state.get("role") == "admin":
+        menu = ["Admin"]
     else:
-        change_password()
-        # Onglets Linéarité / S/N
-        tabs = st.tabs(["Linéarité", "S/N"])
-        with tabs[0]:
-            linearity_tab()
-        with tabs[1]:
-            sn_tab()
+        menu = ["Linéarité / Linearity", "S/N", "Changer mot de passe / Change password"]
+    
+    choice = st.selectbox("Menu", menu)
+    
+    if choice == "Admin":
+        st.subheader("Gestion utilisateurs / User management")
+        st.write(users)
+    elif choice.startswith("Linéarité"):
+        linearity_tab()
+    elif choice.startswith("S/N"):
+        sn_tab()
+    elif choice.startswith("Changer"):
+        change_password_tab()
+
+# -------------------
+# Exécution
+# -------------------
+if "username" not in st.session_state:
+    login_area()
+else:
+    st.write(f"Connecté en tant que / Logged in as: {st.session_state['username']}")
+    if st.button("Se déconnecter / Logout"):
+        logout()
+    else:
+        main_app()
