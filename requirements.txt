@@ -2,6 +2,5 @@ streamlit==1.39.0
 pandas==2.2.2
 numpy==1.26.4
 matplotlib==3.8.1
-scipy==1.11.1
 fpdf==1.7.2
 Pillow==10.4.0
