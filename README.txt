@@ -1,27 +1,16 @@
-# LABT — Application d'analyse (Linearity & S/N)
+# LabT — Linéarité & S/N (Streamlit)
 
-## Description
+## Résumé
 Application Streamlit pour:
-- Calcul de linéarité (import CSV ou saisie manuelle), affichage de la courbe et R².
-- Calcul automatique de concentration ou signal inconnu (sans bouton).
-- Export PDF des rapports (nom société demandé à la génération).
-- Calcul S/N (import CSV pour chromatogramme), sélection d'une zone de bruit.
-- Import d'images (PNG/JPG) pour aperçu; pour calcul S/N privilégier CSV.
-- Gestion utilisateurs (admin: ajouter/supprimer/modifier; user: accès aux outils + changer mot de passe via paramètres discrets).
+- Calcul de la linéarité (import CSV ou saisie manuelle), affichage pente/intercept/R², prédictions concentration ↔ signal, export PDF avec graphique.
+- Calcul S/N depuis un chromatogramme (image PNG/JPG ou CSV), possibilité de sélectionner la zone pour le calcul du bruit, calcul S/N classique et "USP".
+- Gestion des utilisateurs (admin peut ajouter/supprimer/modifier). Les users peuvent changer leur mot de passe via une option discrète.
+- Bilingue: anglais par défaut, français disponible via le menu.
 
-Langue par défaut: Français (FR), option EN (anglais).
-
-## Fichiers
-- `app.py` — code principal
-- `requirements.txt` — dépendances
-- `users.json` — fichier d'utilisateurs (exemple)
-
-## Exécution locale
-1. Créer un environnement Python 3.11.
-2. `pip install -r requirements.txt`
-3. `streamlit run app.py`
-4. Se connecter avec `admin/admin123` (admin) ou `user/user123` (user).
-
-## Remarques importantes
-- `users.json` contient les comptes (démo). Pour production, utiliser un stockage plus sûr et hacher les mots de passe.
-- Aperçu PDF non implémenté: on accepte les PDF en upload mais on recommande conversion en CSV/PNG pour le traitement.
+## Installation (local / container)
+1. Utiliser Python **3.11**.
+2. Créer un environnement:
+   ```bash
+   python3.11 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
