@@ -1,25 +1,27 @@
-# LabT Application
+# LABT — Application d'analyse (Linearity & S/N)
 
 ## Description
+Application Streamlit pour:
+- Calcul de linéarité (import CSV ou saisie manuelle), affichage de la courbe et R².
+- Calcul automatique de concentration ou signal inconnu (sans bouton).
+- Export PDF des rapports (nom société demandé à la génération).
+- Calcul S/N (import CSV pour chromatogramme), sélection d'une zone de bruit.
+- Import d'images (PNG/JPG) pour aperçu; pour calcul S/N privilégier CSV.
+- Gestion utilisateurs (admin: ajouter/supprimer/modifier; user: accès aux outils + changer mot de passe via paramètres discrets).
 
-LabT est une application Streamlit pour les calculs de **linéarité** et de **Signal/Niveau de bruit (S/N)**.  
-Elle permet :
+Langue par défaut: Français (FR), option EN (anglais).
 
-- L'import de données CSV ou saisie manuelle pour la linéarité.
-- Le calcul automatique de **concentration ou signal inconnu**.
-- L'import de CSV, PNG, ou PDF pour le calcul S/N.
-- La sélection de zone pour le calcul S/N.
-- L'export de rapports PDF, avec possibilité d'entrer le **nom de la compagnie** au moment de l'export.
-- Une interface **bilingue FR/EN**.
-- Une gestion des utilisateurs avec **admin** et **users**.
-- Les utilisateurs peuvent changer leur mot de passe via un bouton discret.
+## Fichiers
+- `app.py` — code principal
+- `requirements.txt` — dépendances
+- `users.json` — fichier d'utilisateurs (exemple)
 
----
+## Exécution locale
+1. Créer un environnement Python 3.11.
+2. `pip install -r requirements.txt`
+3. `streamlit run app.py`
+4. Se connecter avec `admin/admin123` (admin) ou `user/user123` (user).
 
-## Installation
-
-1. Cloner le dépôt ou télécharger les fichiers.
-2. Installer les dépendances :
-
-```bash
-pip install -r requirements.txt
+## Remarques importantes
+- `users.json` contient les comptes (démo). Pour production, utiliser un stockage plus sûr et hacher les mots de passe.
+- Aperçu PDF non implémenté: on accepte les PDF en upload mais on recommande conversion en CSV/PNG pour le traitement.
