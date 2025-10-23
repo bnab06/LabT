@@ -1,16 +1,28 @@
-# LabT — Linéarité & S/N (Streamlit)
+# LabT - Application de Linéarité et Signal/Noise
 
-## Résumé
-Application Streamlit pour:
-- Calcul de la linéarité (import CSV ou saisie manuelle), affichage pente/intercept/R², prédictions concentration ↔ signal, export PDF avec graphique.
-- Calcul S/N depuis un chromatogramme (image PNG/JPG ou CSV), possibilité de sélectionner la zone pour le calcul du bruit, calcul S/N classique et "USP".
-- Gestion des utilisateurs (admin peut ajouter/supprimer/modifier). Les users peuvent changer leur mot de passe via une option discrète.
-- Bilingue: anglais par défaut, français disponible via le menu.
+## Description
+Application Streamlit bilingue (Français/Anglais) pour le calcul de linéarité et S/N.
 
-## Installation (local / container)
-1. Utiliser Python **3.11**.
-2. Créer un environnement:
+Fonctionnalités principales :
+- **Linéarité**
+  - Entrée CSV ou manuelle
+  - Calcul automatique de concentration ou signal inconnu
+  - Graphique avec régression linéaire
+  - Export PDF avec graphique, pente, intercept, R², nom de la compagnie, utilisateur et date
+  - Possibilité d’exporter la pente vers S/N pour LOD/LOQ
+- **S/N**
+  - Import CSV / PNG / PDF
+  - Affichage chromatogrammes
+  - Choix de la portion du graphique pour le calcul
+  - Calcul S/N classique et USP
+
+## Authentification
+- Admin : accès uniquement à la gestion des utilisateurs
+- User : accès aux calculs
+- Mot de passe modifiable via un bouton discret
+
+## Installation
+1. Installer Python 3.11
+2. Installer les dépendances :  
    ```bash
-   python3.11 -m venv venv
-   source venv/bin/activate
    pip install -r requirements.txt
