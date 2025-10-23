@@ -1,4 +1,14 @@
+---
+
+# `users.json` (exemple)
+```json
 {
-    "admin": {"password": "admin123", "role": "admin"},
-    "user1": {"password": "user123", "role": "user"}
+  "admin": {
+    "password": "admin123",
+    "role": "admin"
+  },
+  "user": {
+    "password": "user123",
+    "role": "user"
+  }
 }
