@@ -6,9 +6,5 @@
   "user1": {
     "password": "user123",
     "role": "user"
-  },
-  "user2": {
-    "password": "test123",
-    "role": "user"
   }
 }
