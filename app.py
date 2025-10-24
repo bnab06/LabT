@@ -3,23 +3,24 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF
-from PIL import Image
-from scipy import stats
 import io, json, os
 from datetime import datetime
+from scipy import stats
+from PIL import Image
 
 # ========================
-# 🌐 BILINGUE - English / Français
+# 🈹 BILINGUE - Français / English
 # ========================
-LANG = st.session_state.get("lang", "EN")
+def get_lang():
+    return st.session_state.get("lang", "EN")
 
 def T(en, fr):
-    return en if LANG == "EN" else fr
+    LANG = get_lang()
+    return fr if LANG == "FR" else en
 
 def set_language():
-    global LANG
-    LANG = st.selectbox("🌐 Language / Langue", ["EN", "FR"], key="lang_select")
-    st.session_state.lang = LANG
+    lang = st.selectbox("🌐 Language / Langue", ["EN", "FR"], index=0, key="lang_select")
+    st.session_state.lang = lang
 
 # ========================
 # 🔐 USERS
@@ -37,6 +38,9 @@ def save_users(users):
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=4)
 
+# ------------------------
+# LOGIN
+# ------------------------
 def login():
     users = load_users()
     username = st.text_input(T("Username", "Nom d’utilisateur"), key="login_user").strip().lower()
@@ -46,21 +50,20 @@ def login():
         if username in users and users[username] == password:
             st.session_state.user = username
             st.session_state.logged_in = True
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error(T("Invalid username or password", "Nom d’utilisateur ou mot de passe invalide"))
 
-# ========================
-# ⚙️ CHANGE PASSWORD (Discret)
-# ========================
+# ------------------------
+# CHANGE PASSWORD (discret)
+# ------------------------
 def change_password():
     users = load_users()
-    username = st.session_state.user
     st.subheader(T("Change Password", "Changer le mot de passe"))
+    username = st.session_state.user
     old = st.text_input(T("Old Password", "Ancien mot de passe"), type="password", key="old_pw")
     new = st.text_input(T("New Password", "Nouveau mot de passe"), type="password", key="new_pw")
     confirm = st.text_input(T("Confirm Password", "Confirmer le mot de passe"), type="password", key="confirm_pw")
-
     if st.button(T("Update Password", "Mettre à jour"), use_container_width=True):
         if users[username] != old:
             st.error(T("Incorrect old password", "Ancien mot de passe incorrect"))
@@ -71,13 +74,13 @@ def change_password():
             save_users(users)
             st.success(T("Password updated!", "Mot de passe mis à jour !"))
 
-# ========================
-# 🧮 LINÉARITÉ
-# ========================
+# ------------------------
+# LINÉARITÉ
+# ------------------------
 def linearity_tab():
     st.header(T("Linearity", "Linéarité"))
-    file = st.file_uploader(T("Upload CSV file", "Importer un fichier CSV"), type="csv", key="csv_lin")
 
+    file = st.file_uploader(T("Upload CSV file", "Importer un fichier CSV"), type="csv", key="csv_lin")
     if not file:
         return
 
@@ -87,7 +90,7 @@ def linearity_tab():
             st.error(T("CSV must have at least two columns.", "Le CSV doit contenir au moins deux colonnes."))
             return
     except Exception as e:
-        st.error(f"Error reading CSV: {e}")
+        st.error(f"Error reading CSV / Erreur lecture CSV: {e}")
         return
 
     df.columns = ["Concentration", "Signal"]
@@ -96,20 +99,20 @@ def linearity_tab():
     x, y = df["Concentration"], df["Signal"]
     slope, intercept, r, _, _ = stats.linregress(x, y)
 
-    st.session_state.slope = slope
-    st.session_state.intercept = intercept
-    st.session_state.r2 = r ** 2
+    st.write(T("Slope", "Pente"), ":", slope)
+    st.write(T("Intercept", "Ordonnée à l’origine"), ":", intercept)
+    st.write("R²:", round(r ** 2, 4))
 
-    st.write(f"{T('Slope', 'Pente')}: {slope:.4f}")
-    st.write(f"{T('Intercept', 'Ordonnée à l’origine')}: {intercept:.4f}")
-    st.write(f"R²: {r**2:.4f}")
-
+    # Courbe
     fig, ax = plt.subplots()
     ax.scatter(x, y, label="Data")
     ax.plot(x, slope * x + intercept, color="red", label=f"y={round(slope,3)}x+{round(intercept,3)}")
     ax.legend()
     st.pyplot(fig)
 
+    st.session_state.slope = slope
+
+    # Choix du type de calcul inconnu
     calc_type = st.selectbox(T("Calculate:", "Calculer :"),
                              [T("Unknown concentration", "Concentration inconnue"),
                               T("Unknown signal", "Signal inconnu")],
@@ -126,6 +129,7 @@ def linearity_tab():
             signal = slope * conc_value + intercept
             st.success(f"{T('Calculated signal','Signal calculé')}: {signal:.3f}")
 
+    # Export PDF
     company = st.text_input(T("Company name for PDF", "Nom de la compagnie pour le PDF"))
     if st.button(T("Export PDF Report", "Exporter le rapport PDF"), use_container_width=True):
         if not company:
@@ -133,18 +137,18 @@ def linearity_tab():
             return
         export_pdf(company, slope, intercept, r, df, st.session_state.user)
 
-# ========================
-# 📈 S/N, LOD, LOQ
-# ========================
+# ------------------------
+# S/N, LOD, LOQ
+# ------------------------
 def sn_tab():
     st.header("S/N, LOD, LOQ")
-    file = st.file_uploader(T("Upload chromatogram (CSV or PNG)", "Importer un chromatogramme (CSV ou PNG)"),
-                            type=["csv", "png"], key="sn_file")
+
+    file = st.file_uploader(T("Upload chromatogram (CSV, PNG, or PDF)", 
+                              "Importer un chromatogramme (CSV, PNG ou PDF)"), 
+                              type=["csv", "png", "pdf"], key="sn_file")
 
     if not file:
         return
-
-    slope = st.session_state.get("slope", None)
 
     if file.type == "text/csv":
         try:
@@ -154,40 +158,37 @@ def sn_tab():
                 return
             df.columns = ["Time", "Signal"]
             st.line_chart(df.set_index("Time"))
-
             baseline = np.std(df["Signal"])
             signal_max = df["Signal"].max()
             sn = signal_max / baseline
-            st.success(f"S/N = {sn:.2f}")
-
-            if slope:
-                lod = 3.3 * baseline / slope
-                loq = 10 * baseline / slope
-                st.write(f"LOD = {lod:.3f}")
-                st.write(f"LOQ = {loq:.3f}")
-
+            st.write(f"S/N = {sn:.2f}")
         except Exception as e:
             st.error(f"Error reading CSV: {e}")
-    elif file.type == "image/png":
-        st.image(file)
-        st.info(T("S/N calculation works only for CSV chromatograms", 
-                  "Le calcul S/N fonctionne uniquement pour les chromatogrammes CSV."))
+    else:
+        try:
+            if file.type == "application/pdf":
+                st.info(T("PDF preview not implemented", "Aperçu PDF non implémenté"))
+            elif file.type == "image/png":
+                st.image(file)
+        except Exception as e:
+            st.error(f"File preview error: {e}")
 
-# ========================
-# 📑 EXPORT PDF
-# ========================
+# ------------------------
+# EXPORT PDF
+# ------------------------
 def export_pdf(company, slope, intercept, r, df, user):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", "B", 14)
-    pdf.cell(200, 10, company, ln=True, align="C")
+    pdf.cell(200, 10, f"{company}", ln=True, align="C")
     pdf.set_font("Arial", "", 12)
     pdf.cell(200, 10, f"{T('Generated by','Généré par')} {user}", ln=True)
     pdf.cell(200, 10, f"{T('Date','Date')}: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True)
     pdf.cell(200, 10, f"Slope/Pente: {round(slope,4)}", ln=True)
-    pdf.cell(200, 10, f"Intercept: {round(intercept,4)}", ln=True)
+    pdf.cell(200, 10, f"Intercept/Ordonnée: {round(intercept,4)}", ln=True)
     pdf.cell(200, 10, f"R²: {round(r**2,4)}", ln=True)
 
+    # Courbe
     plt.figure()
     plt.scatter(df["Concentration"], df["Signal"])
     plt.plot(df["Concentration"], slope*df["Concentration"] + intercept, color="red")
@@ -197,16 +198,25 @@ def export_pdf(company, slope, intercept, r, df, user):
     plt.savefig(buf, format="png")
     plt.close()
     buf.seek(0)
-    Image.open(buf).save("temp_plot.png")
+    image = Image.open(buf)
+    image.save("temp_plot.png")
     pdf.image("temp_plot.png", x=30, w=150)
     pdf.output("report.pdf")
 
     with open("report.pdf", "rb") as f:
         st.download_button(T("📄 Download Report", "📄 Télécharger le rapport"), f, file_name="report.pdf")
 
-# ========================
-# 🧭 MAIN
-# ========================
+# ------------------------
+# LOGOUT
+# ------------------------
+def logout():
+    st.session_state.logged_in = False
+    st.session_state.user = None
+    st.experimental_rerun()
+
+# ------------------------
+# MAIN
+# ------------------------
 def main():
     set_language()
 
@@ -221,7 +231,9 @@ def main():
 
     if user == "admin":
         st.subheader(T("User Management", "Gestion des utilisateurs"))
-        st.write(load_users())
+        users = load_users()
+        st.write(list(users.keys()))
+        st.button(T("Logout", "Déconnexion"), on_click=lambda: logout())
     else:
         tab = st.radio("", [T("Linearity", "Linéarité"), "S/N"], horizontal=True)
         if tab == T("Linearity", "Linéarité"):
@@ -229,13 +241,11 @@ def main():
         else:
             sn_tab()
 
+        # Changement mot de passe discret
         with st.expander(T("Change password", "Changer le mot de passe")):
             change_password()
 
-    if st.button(T("Logout", "Déconnexion"), use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.user = None
-        st.rerun()
+        st.button(T("Logout", "Déconnexion"), on_click=lambda: logout())
 
 if __name__ == "__main__":
     main()
