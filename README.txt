@@ -1,28 +1,28 @@
-# LabT - Application de Linéarité et Signal/Noise
+# LabT
 
 ## Description
-Application Streamlit bilingue (Français/Anglais) pour le calcul de linéarité et S/N.
+LabT est une application Streamlit bilingue (EN/FR) pour :
+- l'analyse de linéarité (import CSV ou saisie manuelle), calcul de pente, R², export PDF
+- le calcul S/N (import CSV / image / PDF), choix d'une fenêtre temporelle, calcul S/N (classique et USP-style), LOD/LOQ (signal et en concentration si pente fournie)
+- gestion des utilisateurs (admin: ajout/modification/suppression des users)
+- export PDF des rapports (company name demandé au moment de l'export)
 
-Fonctionnalités principales :
-- **Linéarité**
-  - Entrée CSV ou manuelle
-  - Calcul automatique de concentration ou signal inconnu
-  - Graphique avec régression linéaire
-  - Export PDF avec graphique, pente, intercept, R², nom de la compagnie, utilisateur et date
-  - Possibilité d’exporter la pente vers S/N pour LOD/LOQ
-- **S/N**
-  - Import CSV / PNG / PDF
-  - Affichage chromatogrammes
-  - Choix de la portion du graphique pour le calcul
-  - Calcul S/N classique et USP
+## Fonctionnalités clés
+- Bilingue (EN par défaut, FR disponible)
+- Authentification basique via `users.json` (le fichier est créé automatiquement s'il n'existe pas)
+- Admin : gestion complète des utilisateurs (username/password/role). Admin **ne voit pas** le contenu du JSON ni n'accède aux calculs.
+- Users : accès aux modules Linearity et S/N
+- Linearity : import CSV (2 colonnes minimum) **ou** saisie manuelle (valeurs séparées par des virgules). Calcul automatique de concentration/signal inconnus.
+- S/N : import CSV (Time,Signal) ou image/pdf (digitize automatique en sommant verticalement l'image). Choix de la fenêtre via sliders.
+- LOD/LOQ calculés au niveau signal et convertis en concentration si pente disponible.
+- Export PDF des rapports (company name demandé à l'export).
 
-## Authentification
-- Admin : accès uniquement à la gestion des utilisateurs
-- User : accès aux calculs
-- Mot de passe modifiable via un bouton discret
+## Installation (Streamlit Cloud)
+1. Déposer les fichiers `app.py`, `requirements.txt`, `README.md` dans le repo.
+2. Dans le dashboard Streamlit Cloud, créer une nouvelle app pointant sur ce repo.
+3. S'assurer que l'environnement Python est **3.11**.
+4. Déployer.
 
-## Installation
-1. Installer Python 3.11
-2. Installer les dépendances :  
-   ```bash
-   pip install -r requirements.txt
+## Remarques
+- Si l'import PDF ne fonctionne pas, installer `pymupdf` et/ou `pdf2image` localement.
+- Les algorithmes de digitalisation utilisés sont volontairement simples (extraction par sommation verticale). Pour une digitalisation interactive avancée, il faut intégrer un widget JS/JSPlot ou un service externe.
