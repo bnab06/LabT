@@ -1,8 +1,7 @@
-
-streamlit==1.30.0
-pandas==2.1.1
-numpy==1.26.4
-scipy
+streamlit==1.39.0
+pandas
+numpy
 matplotlib
+scipy
 fpdf
 Pillow
