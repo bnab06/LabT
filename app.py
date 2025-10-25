@@ -21,20 +21,16 @@ users = {
 
 # ----------------- Translations -----------------
 LANG = {
-    "en": {
-        "login":"Login","password":"Password","submit":"Submit","sn":"S/N","linearity":"Linearity",
-        "invalid":"Invalid credentials","powered":"Powered by BnB","admin_panel":"Admin Panel",
-        "manage_users":"Manage Users","modify":"Modify","delete":"Delete",
-        "input_type":"Input type","csv":"CSV","manual":"Manual","unit":"Unit",
-        "formulas":"Formulas"
-    },
-    "fr": {
-        "login":"Utilisateur","password":"Mot de passe","submit":"Valider","sn":"S/N","linearity":"Linéarité",
-        "invalid":"Identifiants invalides","powered":"Powered by BnB","admin_panel":"Panneau Admin",
-        "manage_users":"Gestion des utilisateurs","modify":"Modifier","delete":"Supprimer",
-        "input_type":"Type d'entrée","csv":"CSV","manual":"Manuel","unit":"Unité",
-        "formulas":"Formules"
-    }
+    "en": {"login":"Login","password":"Password","submit":"Submit","sn":"S/N","linearity":"Linearity",
+           "invalid":"Invalid credentials","powered":"Powered by BnB","admin_panel":"Admin Panel",
+           "manage_users":"Manage Users","modify":"Modify","delete":"Delete",
+           "input_type":"Input type","csv":"CSV","manual":"Manual","unit":"Unit",
+           "formulas":"Formulas","select_region":"Select region for S/N"},
+    "fr": {"login":"Utilisateur","password":"Mot de passe","submit":"Valider","sn":"S/N","linearity":"Linéarité",
+           "invalid":"Identifiants invalides","powered":"Powered by BnB","admin_panel":"Panneau Admin",
+           "manage_users":"Gestion des utilisateurs","modify":"Modifier","delete":"Supprimer",
+           "input_type":"Type d'entrée","csv":"CSV","manual":"Manuel","unit":"Unité",
+           "formulas":"Formules","select_region":"Sélectionner la zone pour S/N"}
 }
 
 def t(key):
@@ -52,10 +48,12 @@ def login_panel():
     user = st.text_input(t("login"))
     pwd = st.text_input(t("password"), type="password")
     if st.button(t("submit"), key="login_btn"):
-        if user in users and users[user]["password"] == pwd:
-            st.session_state.logged_in = True
-            st.session_state.user_role = users[user]["role"]
-            st.experimental_rerun()
+        user_lower = user.lower()
+        for u in users:
+            if u.lower() == user_lower and users[u]["password"] == pwd:
+                st.session_state.logged_in = True
+                st.session_state.user_role = users[u]["role"]
+                st.experimental_rerun()
         else:
             st.error(t("invalid"))
     st.markdown("<p style='text-align:center;font-size:12px;color:gray;'>"+t("powered")+"</p>", unsafe_allow_html=True)
@@ -83,11 +81,11 @@ def main_app():
 def admin_panel():
     st.title(t("admin_panel"))
     st.write(t("manage_users"))
-    for u in users:
+    for u in list(users.keys()):
         cols = st.columns([2,1,1])
         cols[0].write(f"{u} - role: {users[u]['role']}")
         if cols[1].button(t("modify"), key=f"mod_{u}"):
-            new_pwd = st.text_input(f"New password for {u}", type="password")
+            new_pwd = st.text_input(f"New password for {u}", type="password", key=f"pwd_{u}")
             if new_pwd:
                 users[u]["password"] = new_pwd
                 st.success(f"Password for {u} updated")
@@ -116,7 +114,7 @@ def linear_panel():
                     "Signal":[round(float(x),4) for x in signal.split(",")]
                 })
             except: st.warning("Invalid manual input")
-    unit = st.selectbox(t("unit"), ["ug/mL","mg/mL"])
+    unit = st.selectbox(t("unit"), ["µg/mL","mg/mL"])
     if df is not None:
         X = df["Concentration"].values.reshape(-1,1)
         y = df["Signal"].values
@@ -136,11 +134,12 @@ def linear_panel():
             pdf.add_page()
             pdf.set_font("Arial","",12)
             pdf.cell(0,10,f"Slope: {slope}", ln=1)
+            pdf.cell(0,10,f"Intercept: {intercept}", ln=1)
             pdf.cell(0,10,f"R²: {r2}", ln=1)
             pdf_file="linearity.pdf"
             pdf.output(pdf_file)
             st.download_button("Download PDF", pdf_file, file_name="linearity.pdf")
-        # Store slope for S/N calculation
+        # Store slope for S/N LOD/LOQ calculations
         st.session_state.linear_slope = slope
 
 # ----------------- Signal/Noise -----------------
@@ -154,6 +153,12 @@ def sn_panel():
             df = pd.read_csv(file)
             st.dataframe(df)
             if "Signal" in df.columns: signal = df["Signal"].values
+            # Plot raw
+            plt.figure()
+            plt.plot(signal)
+            plt.xlabel("Points")
+            plt.ylabel("Signal")
+            st.pyplot(plt)
         # PDF
         elif file.name.endswith(".pdf"):
             try:
@@ -163,7 +168,11 @@ def sn_panel():
                     arr = np.array(img.convert("L"))
                     sig = arr.max(axis=0)
                     if signal is None: signal = sig
-                    st.line_chart(sig)
+                    plt.figure()
+                    plt.plot(sig)
+                    plt.xlabel("Points")
+                    plt.ylabel("Signal")
+                    st.pyplot(plt)
             except: st.warning("Cannot process PDF")
         # Image
         else:
@@ -171,18 +180,27 @@ def sn_panel():
                 img = Image.open(file).convert("L")
                 arr = np.array(img)
                 signal = arr.max(axis=0)
-                st.line_chart(signal)
+                plt.figure()
+                plt.plot(signal)
+                plt.xlabel("Points")
+                plt.ylabel("Signal")
+                st.pyplot(plt)
             except: st.warning("Cannot process image")
 
-    # Slider for region selection
     if signal is not None:
-        start, end = st.slider("Select region for S/N", 0, len(signal)-1, (0,len(signal)-1))
+        start, end = st.slider(t("select_region"), 0, len(signal)-1, (0,len(signal)-1))
         region_signal = signal[start:end+1]
         sn_classic = region_signal.max()/region_signal.std() if region_signal.std()!=0 else np.nan
         sn_usp = np.mean(region_signal)/np.std(region_signal) if np.std(region_signal)!=0 else np.nan
         st.write(f"S/N Classic: {round(sn_classic,4)}, S/N USP: {round(sn_usp,4)}")
         if "linear_slope" in st.session_state:
-            st.write(f"Slope from linearity (exportable): {st.session_state.linear_slope}")
+            slope = st.session_state.linear_slope
+            # Example LOD/LOQ using slope and signal std
+            sd = np.std(region_signal)
+            lod = round(3.3*sd/slope,4)
+            loq = round(10*sd/slope,4)
+            st.write(f"LOD: {lod}, LOQ: {loq}")
+            st.write(f"Slope from linearity (exportable): {slope}")
         # Export CSV
         csv_io = io.StringIO()
         pd.DataFrame({"Signal":region_signal}).to_csv(csv_io,index=False)
@@ -194,6 +212,9 @@ def sn_panel():
         pdf.cell(0,10,"S/N Report",ln=1)
         pdf.cell(0,10,f"S/N Classic: {round(sn_classic,4)}", ln=1)
         pdf.cell(0,10,f"S/N USP: {round(sn_usp,4)}", ln=1)
+        if "linear_slope" in st.session_state:
+            pdf.cell(0,10,f"Slope from linearity: {slope}", ln=1)
+            pdf.cell(0,10,f"LOD: {lod}, LOQ: {loq}", ln=1)
         pdf_file="sn_report.pdf"
         pdf.output(pdf_file)
         st.download_button("Download PDF", pdf_file, file_name="sn_report.pdf")
