@@ -2050,4 +2050,99 @@ def main():
 
 # --- Lancer l’application ---
 if __name__ == "__main__":
+
+    main()
+# ============================
+# 🔐 LOGIN & SESSION MANAGEMENT
+# ============================
+
+import streamlit as st
+
+def logout():
+    """Déconnexion utilisateur"""
+    st.session_state.logged_in = False
+    st.session_state.username = None
+    st.experimental_rerun()
+
+
+def login_screen():
+    """Écran de connexion"""
+    st.title("🔐 Connexion à LabT")
+
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
+        submitted = st.form_submit_button("Se connecter")
+
+        if submitted:
+            # Exemple simple — à remplacer par ta logique réelle
+            if username == "admin" and password == "admin":
+                st.session_state.logged_in = True
+                st.session_state.username = username
+                st.success("Connexion réussie ✅")
+                st.experimental_rerun()
+            else:
+                st.error("Nom d’utilisateur ou mot de passe incorrect ❌")
+
+
+# ============================
+# 🧠 MAIN APPLICATION
+# ============================
+
+def main_app():
+    """Contenu principal de l'application (après connexion)"""
+    st.sidebar.title(f"👋 Bonjour {st.session_state.username}")
+
+    # Bouton de déconnexion utilisateur
+    if st.sidebar.button("Se déconnecter", key="logout_user"):
+        logout()
+
+    st.title("📊 Tableau de bord LabT")
+    st.write("Bienvenue dans l’application principale. Toutes les fonctionnalités sont ici.")
+
+    # Exemple d'affichage simple (à remplacer par tes panels)
+    menu = st.sidebar.selectbox("Menu", ["Accueil", "Analyse", "Administration"])
+
+    if menu == "Accueil":
+        st.write("Bienvenue sur la page d’accueil !")
+
+    elif menu == "Analyse":
+        st.write("Section d’analyse — importer vos données ici.")
+
+    elif menu == "Administration":
+        admin_panel()
+
+
+# ============================
+# ⚙️ ADMIN PANEL
+# ============================
+
+def admin_panel():
+    """Espace réservé aux administrateurs"""
+    st.subheader("🧭 Panneau d’administration")
+
+    # Bouton de déconnexion spécifique à l’admin
+    st.sidebar.button("Logout / Déconnexion", key="logout_admin", on_click=logout)
+
+    st.write("Ici, les administrateurs peuvent gérer les utilisateurs et les paramètres.")
+
+
+# ============================
+# 🚀 MAIN ENTRY POINT
+# ============================
+
+def main():
+    """Contrôle l'accès à l'application"""
+    st.set_page_config(page_title="LabT", layout="wide")
+
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+
+    if not st.session_state.logged_in:
+        login_screen()
+    else:
+        main_app()
+
+
+if __name__ == "__main__":
     main()
