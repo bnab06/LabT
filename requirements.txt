@@ -1,8 +1,22 @@
+# Streamlit
 streamlit==1.30.0
+
+# Data handling
+numpy>=1.26.4,<1.27
 pandas==2.2.0
-numpy==1.26.5
-plotly==5.20.0
+
+# Plotting
+matplotlib==3.8.0
+plotly==5.16.1
+
+# PDF generation
 fpdf==1.7.2
-pytesseract==0.3.11
-Pillow==10.1.1
-pdf2image==1.17.1
+
+# PDF & image digitizing
+PyMuPDF==1.23.6
+pdf2image==1.16.3
+pytesseract==0.3.12
+Pillow==10.0.1
+
+# Misc
+scipy==1.12.1
