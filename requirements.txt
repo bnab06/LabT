@@ -1,8 +1,7 @@
-streamlit>=1.25.0
+streamlit>=1.30.0
 pandas
 numpy
-plotly
+matplotlib
 fpdf
-pytesseract
-pdf2image
 Pillow
+pdf2image
