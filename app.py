@@ -5,167 +5,173 @@ import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 from PIL import Image
-from io import BytesIO
-import base64
+import io
+from pdf2image import convert_from_path
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
-# ---------------------
-# Traduction bilingue
-# ---------------------
-LANG = 'fr'  # 'en' ou 'fr'
-
-translations = {
-    "login": {"fr": "Connexion", "en": "Login"},
-    "username": {"fr": "Nom d'utilisateur", "en": "Username"},
-    "password": {"fr": "Mot de passe", "en": "Password"},
-    "logout": {"fr": "Déconnexion", "en": "Logout"},
-    "linearity": {"fr": "Linéarité", "en": "Linearity"},
-    "sn": {"fr": "S/N", "en": "S/N"},
-    "submit": {"fr": "Valider", "en": "Submit"},
-    "manual_input": {"fr": "Saisie manuelle", "en": "Manual input"},
-    "csv_upload": {"fr": "Téléverser CSV", "en": "Upload CSV"},
-    "concentration": {"fr": "Concentration", "en": "Concentration"},
-    "signal": {"fr": "Signal", "en": "Signal"},
-    "unknown_conc": {"fr": "Concentration inconnue", "en": "Unknown concentration"},
-    "unknown_signal": {"fr": "Signal inconnu", "en": "Unknown signal"},
-    "formula": {"fr": "Formules de calcul", "en": "Calculation formulas"},
-    "powered_by": {"fr": "Powered by BnB", "en": "Powered by BnB"}
-}
-
-def t(key):
-    return translations.get(key, {}).get(LANG, key)
-
-# ---------------------
-# Users / Admin
-# ---------------------
-USERS = {
-    "user": "1234",
-    "admin": "admin"
-}
-
-def check_login(username, password):
-    return USERS.get(username) == password
-
-# ---------------------
-# Page de configuration
-# ---------------------
+# ----------------- Config -----------------
 st.set_page_config(page_title="LabT", layout="wide")
 
-# ---------------------
-# Footer
-# ---------------------
-def footer():
-    st.markdown(f"<div style='text-align:center;color:gray;margin-top:50px'>{t('powered_by')}</div>", unsafe_allow_html=True)
+# ----------------- Users JSON -----------------
+users = {
+    "admin": {"password": "admin123", "role": "admin"},
+    "user": {"password": "user123", "role": "user"}
+}
 
-# ---------------------
-# Login panel
-# ---------------------
+# ----------------- Translations -----------------
+LANG = {"en": {"login":"Login","password":"Password","submit":"Submit","sn":"S/N","linearity":"Linearity",
+               "invalid":"Invalid credentials","powered":"Powered by BnB"},
+        "fr": {"login":"Utilisateur","password":"Mot de passe","submit":"Valider","sn":"S/N",
+               "linearity":"Linéarité","invalid":"Identifiants invalides","powered":"Powered by BnB"}}
+
+def t(key):
+    return LANG[st.session_state.lang][key]
+
+# ----------------- Session -----------------
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user_role" not in st.session_state:
+    st.session_state.user_role = None
+if "lang" not in st.session_state:
+    st.session_state.lang = "fr"  # default FR
+
+# ----------------- Login -----------------
 def login_panel():
-    st.title(t("login"))
-    username = st.text_input(t("username"))
-    password = st.text_input(t("password"), type="password")
-    if st.button(t("login")):
-        if check_login(username, password):
-            st.session_state['logged_in'] = True
-            st.session_state['username'] = username
+    st.title("LabT")
+    st.selectbox("Language / Langue", ["fr","en"], key="lang", on_change=lambda: st.experimental_rerun())
+    user = st.text_input(t("login"))
+    pwd = st.text_input(t("password"), type="password")
+    if st.button(t("submit")):
+        if user in users and users[user]["password"] == pwd:
+            st.session_state.logged_in = True
+            st.session_state.user_role = users[user]["role"]
             st.experimental_rerun()
         else:
-            st.error("Invalid credentials")
-    footer()
+            st.error(t("invalid"))
+    st.markdown("<p style='text-align:center;font-size:12px;color:gray;'>"+t("powered")+"</p>", unsafe_allow_html=True)
 
-# ---------------------
-# Logout
-# ---------------------
+# ----------------- Logout -----------------
 def logout():
-    for key in ['logged_in', 'username']:
-        if key in st.session_state:
-            del st.session_state[key]
+    st.session_state.logged_in = False
+    st.session_state.user_role = None
     st.experimental_rerun()
 
-# ---------------------
-# Linéarité
-# ---------------------
-def linear_panel():
-    st.header(t("linearity"))
-
-    input_type = st.radio("Input type:", [t("manual_input"), t("csv_upload")])
-    
-    if input_type == t("manual_input"):
-        conc_str = st.text_input(f"{t('concentration')} (comma separated)", "1,2,3,4")
-        signal_str = st.text_input(f"{t('signal')} (comma separated)", "10,20,30,40")
-        try:
-            conc = np.array([float(x.strip()) for x in conc_str.split(',')])
-            signal = np.array([float(x.strip()) for x in signal_str.split(',')])
-        except:
-            st.error("Invalid manual input")
-            return
-    else:
-        file = st.file_uploader(t("csv_upload"), type="csv")
-        if file:
-            df = pd.read_csv(file)
-            conc = df[t("concentration")].values
-            signal = df[t("signal")].values
-        else:
-            return
-    
-    # Calcul linéarité
-    m, b = np.polyfit(conc, signal, 1)
-    r2 = np.corrcoef(conc, signal)[0,1]**2
-    
-    st.write(f"R² = {r2:.4f}")
-    st.write(f"Pente = {m:.4f}")
-    
-    # Tracé
-    fig, ax = plt.subplots()
-    ax.scatter(conc, signal)
-    ax.plot(conc, m*conc+b, color='red')
-    ax.set_xlabel(t("concentration"))
-    ax.set_ylabel(t("signal"))
-    st.pyplot(fig)
-    
-    # Export PDF
-    pdf_buffer = BytesIO()
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200,10,"Linéarité", ln=True)
-    pdf.cell(200,10,f"R2={r2:.4f}, Pente={m:.4f}", ln=True)
-    pdf_output = pdf_buffer
-    pdf.output(pdf_output)
-    st.download_button("Download PDF", data=pdf_buffer.getvalue(), file_name="linearity.pdf", mime="application/pdf")
-
-# ---------------------
-# S/N panel
-# ---------------------
-def sn_panel():
-    st.header(t("sn"))
-    file = st.file_uploader("Upload image or PDF", type=["png","jpg","pdf"])
-    if file:
-        st.success("File uploaded successfully")
-        # Ici tu peux ajouter l’extraction des données depuis image/pdf
-        st.info("S/N calculation to be implemented")
-
-# ---------------------
-# Main app
-# ---------------------
+# ----------------- Main App -----------------
 def main_app():
     st.sidebar.title("Menu")
-    menu = st.sidebar.radio("Select", [t("linearity"), t("sn")])
-    
-    if 'username' in st.session_state and st.session_state['username'] == "admin":
-        st.sidebar.button(t("logout"), on_click=logout)
-        st.info("Admin panel: gestion des users")
-    else:
-        st.sidebar.button(t("logout"), on_click=logout)
-    
-    if menu == t("linearity"):
-        linear_panel()
-    elif menu == t("sn"):
-        sn_panel()
+    menu_options = [t("sn"), t("linearity")]
+    if st.session_state.user_role == "admin":
+        menu_options = ["Admin"]
+    menu = st.sidebar.radio("Go to", menu_options)
+    st.sidebar.button("Logout / Déconnexion", on_click=logout)
 
-# ---------------------
-# Run
-# ---------------------
-if 'logged_in' not in st.session_state:
-    login_panel()
-else:
+    if menu==t("linearity"): linear_panel()
+    elif menu==t("sn"): sn_panel()
+    elif menu=="Admin": admin_panel()
+
+# ----------------- Admin -----------------
+def admin_panel():
+    st.title("Admin Panel")
+    st.write("Gestion des utilisateurs")
+    for u in users:
+        st.write(f"{u} - role: {users[u]['role']}")
+
+# ----------------- Linearity -----------------
+def linear_panel():
+    st.title(t("linearity"))
+
+    input_type = st.radio("Input type", ["CSV","Manual"])
+    if input_type=="CSV":
+        file = st.file_uploader("Upload CSV", type=["csv"])
+        if file:
+            df = pd.read_csv(file)
+    else:
+        conc = st.text_area("Concentration (comma-separated)")
+        signal = st.text_area("Signal (comma-separated)")
+        if conc and signal:
+            try:
+                df = pd.DataFrame({
+                    "Concentration":[float(x) for x in conc.split(",")],
+                    "Signal":[float(x) for x in signal.split(",")]
+                })
+            except:
+                st.warning("Invalid manual input")
+                return
+
+    # Dropdown unité
+    unit = st.selectbox("Unit", ["ug/mL","mg/mL"])
+    if 'df' in locals():
+        X = df["Concentration"].values.reshape(-1,1)
+        y = df["Signal"].values
+        reg = LinearRegression().fit(X, y)
+        slope = reg.coef_[0]
+        intercept = reg.intercept_
+        r2 = r2_score(y, reg.predict(X))
+        st.write(f"Slope: {round(slope,4)}, R2: {round(r2,4)}")
+        plt.figure()
+        plt.scatter(df["Concentration"], df["Signal"])
+        plt.plot(df["Concentration"], reg.predict(X), 'r')
+        plt.xlabel(f"Concentration ({unit})")
+        plt.ylabel("Signal")
+        st.pyplot(plt)
+        if st.button("Export PDF"):
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial", "", 12)
+            pdf.cell(0,10,f"Slope: {slope}",ln=1)
+            pdf.cell(0,10,f"R2: {r2}",ln=1)
+            pdf_file = "linearity.pdf"
+            pdf.output(pdf_file)
+            st.download_button("Download PDF", pdf_file, file_name="linearity.pdf")
+
+# ----------------- Signal/Noise -----------------
+def sn_panel():
+    st.title(t("sn"))
+    file = st.file_uploader("Upload image/pdf/csv", type=["png","jpg","pdf","csv"])
+    if file:
+        # CSV
+        if file.name.endswith(".csv"):
+            df = pd.read_csv(file)
+            st.dataframe(df)
+        # PDF
+        elif file.name.endswith(".pdf"):
+            try:
+                images = convert_from_path(file)
+                for i,img in enumerate(images):
+                    st.image(img, caption=f"Page {i+1}")
+                    arr = np.array(img.convert("L"))
+                    signal = arr.max(axis=0)
+                    st.line_chart(signal)
+            except:
+                st.warning("Cannot process PDF")
+        # Image
+        else:
+            try:
+                img = Image.open(file).convert("L")
+                arr = np.array(img)
+                signal = arr.max(axis=0)
+                st.line_chart(signal)
+            except:
+                st.warning("Cannot process image")
+
+        # Export CSV
+        if 'signal' in locals():
+            csv_io = io.StringIO()
+            pd.DataFrame({"Signal":signal}).to_csv(csv_io,index=False)
+            st.download_button("Download CSV", csv_io.getvalue(), file_name="sn_data.csv")
+            # Export PDF
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.set_font("Arial","",12)
+            pdf.cell(0,10,"S/N Report",ln=1)
+            pdf.cell(0,10,f"Max Signal: {signal.max()}",ln=1)
+            pdf_file="sn_report.pdf"
+            pdf.output(pdf_file)
+            st.download_button("Download PDF", pdf_file, file_name="sn_report.pdf")
+
+# ----------------- Run -----------------
+if st.session_state.logged_in:
     main_app()
+else:
+    login_panel()

@@ -1,7 +1,8 @@
-streamlit>=1.30.0
+streamlit
 pandas
 numpy
 matplotlib
 fpdf
 Pillow
+scikit-learn
 pdf2image
