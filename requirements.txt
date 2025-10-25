@@ -1,22 +1,24 @@
-# Streamlit
+# Streamlit pour l'interface
 streamlit==1.30.0
 
-# Data handling
+# Data manipulation
 numpy>=1.26.4,<1.27
 pandas==2.2.0
 
-# Plotting
+# Graphiques
 matplotlib==3.8.0
 plotly==5.16.1
 
-# PDF generation
+# PDF et rapport
 fpdf==1.7.2
-
-# PDF & image digitizing
 PyMuPDF==1.23.6
 pdf2image==1.16.3
-pytesseract==0.3.12
-Pillow==10.0.1
 
-# Misc
-scipy==1.12.1
+# OCR pour digitizing
+pytesseract==0.3.13
+
+# Utilities pour l'affichage
+rich==14.2.0
+markdown-it-py==4.0.0
+mdurl==0.1.2
+pygments==2.19.2
