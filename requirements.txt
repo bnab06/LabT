@@ -1,24 +1,32 @@
-# Streamlit et interface
+# Interface et Streamlit
 streamlit==1.30.0
-rich==14.2.0
+rich>=10.14.0,<14
 markdown-it-py==4.0.0
 mdurl==0.1.2
 pygments==2.19.2
 
 # Analyse de données
-numpy>=1.26.4,<1.27
+numpy<1.27,>=1.26.4
 pandas==2.2.0
 matplotlib==3.8.0
 plotly==5.16.1
+altair<6,>=4.0
 
-# Génération PDF
+# PDF et images
 fpdf==1.7.2
-
-# PDF et images pour digitizing
 PyMuPDF==1.23.6
 pdf2image==1.16.3
-pytesseract==0.3.13
 Pillow==10.0.0
-
-# Optionnel si besoin pour OCR ou manipulation d’images
 opencv-python-headless==4.8.1.78
+pytesseract==0.3.13
+
+# Utilitaires
+requests<3,>=2.27
+python-dateutil<3,>=2.7.3
+packaging<24,>=16.8
+protobuf<5,>=3.20
+blinker<2,>=1.0.0
+cachetools<6,>=4.0
+click<9,>=7.0
+importlib-metadata<8,>=1.4
+pyarrow>=6.0
