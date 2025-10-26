@@ -1,7 +1,9 @@
-streamlit
+streamlit>=1.20
 pandas
 numpy
 matplotlib
 fpdf
 Pillow
 scikit-learn
+pdf2image
+pytesseract
