@@ -1,9 +1,8 @@
-streamlit==1.50.0
+streamlit==1.30.0
 pandas
 numpy
 matplotlib
-fpdf==1.7.2
+fpdf
 Pillow
 pdf2image
 pytesseract
-scikit-learn
