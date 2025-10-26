@@ -1,8 +1,8 @@
-streamlit>=1.25
-pandas>=2.0
-numpy>=1.27
-matplotlib>=3.8
-fpdf>=1.7
-Pillow>=10.0
-pdf2image>=1.16   # pour convertir PDF en images
-pytesseract>=0.3.10   # pour OCR (optionnel)
+streamlit>=1.25.0
+pandas>=2.0.0
+numpy>=1.24.0
+matplotlib>=3.7.0
+fpdf>=1.7.2
+pillow>=10.0.0
+pytesseract>=0.3.10
+pdf2image>=1.16.3
