@@ -1,9 +1,8 @@
-streamlit>=1.20
-pandas
-numpy
-matplotlib
-fpdf
-Pillow
-scikit-learn
-pdf2image
-pytesseract
+streamlit>=1.25
+pandas>=2.0
+numpy>=1.27
+matplotlib>=3.8
+fpdf>=1.7
+Pillow>=10.0
+pdf2image>=1.16   # pour convertir PDF en images
+pytesseract>=0.3.10   # pour OCR (optionnel)
