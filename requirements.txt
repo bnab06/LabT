@@ -1,7 +1,7 @@
 # Core
 streamlit==1.28.0
+numpy>=1.23.0,<1.27.0
 pandas>=2.0.0
-numpy>=1.27.0
 matplotlib>=3.8.0
 fpdf>=1.7.2
 Pillow>=10.0.0
@@ -10,5 +10,5 @@ Pillow>=10.0.0
 pdf2image>=1.16.3
 pytesseract>=0.3.12
 
-# Extras (for file handling)
-PyPDF2>=3.1.0
+# Extras
+PyPDF2>=2.12.1,<3.0.0
