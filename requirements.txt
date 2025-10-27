@@ -1,8 +1,8 @@
-streamlit>=1.25.0
-pandas>=2.1.0
-numpy>=1.26.0
+streamlit>=1.30.0
+pandas>=2.0.0
+numpy>=1.25.0
 matplotlib>=3.8.0
-fpdf2>=2.7.0
+fpdf>=1.7.2
 Pillow>=10.0.0
-pdf2image>=1.17.0
-pytesseract>=0.3.10
+pdf2image>=1.16.0
+pytesseract>=0.3.11
