@@ -1,216 +1,277 @@
-# app.py - Version complète et exécutable
+# ================================
+# app.py - Partie 1
+# Imports et configuration
+# ================================
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from fpdf import FPDF
+from pdf2image import convert_from_path
 from PIL import Image
-import io
-import json
-import tempfile
-from datetime import datetime
 import os
+from datetime import datetime
 
-# Optional features
-try:
-    from pdf2image import convert_from_bytes
-except Exception:
-    convert_from_bytes = None
+# Configuration page
+st.set_page_config(
+    page_title="LabT Analysis Platform",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
-try:
-    import pytesseract
-except Exception:
-    pytesseract = None
+# ----------------
+# Fonctions utilitaires
+# ----------------
 
-# -------------------------
-# Config
-# -------------------------
-st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
-USERS_FILE = "users.json"
-LOGO_FILE = "logo_labt.png"
-
-# -------------------------
-# Users
-# -------------------------
-def load_users():
+def load_csv(file):
+    """Charge un fichier CSV et retourne un DataFrame"""
     try:
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        default = {"admin": {"password": "admin123", "role": "admin"},
-                   "user": {"password": "user123", "role": "user"}}
-        try:
-            with open(USERS_FILE, "w", encoding="utf-8") as f:
-                json.dump(default, f, indent=4, ensure_ascii=False)
-        except Exception:
-            pass
-        return default
+        df = pd.read_csv(file)
+        return df
+    except Exception as e:
+        st.error(f"Erreur lors du chargement du CSV : {e}")
+        return None
 
-def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4, ensure_ascii=False)
+def save_csv(df, filename):
+    """Sauvegarde un DataFrame en CSV"""
+    try:
+        df.to_csv(filename, index=False)
+        st.success(f"Fichier sauvegardé : {filename}")
+    except Exception as e:
+        st.error(f"Erreur lors de la sauvegarde : {e}")
 
-USERS = load_users()
-
-# -------------------------
-# Translations
-# -------------------------
-TEXTS = {
-    "FR": { "app_title":"LabT","powered":"Powered by BnB","username":"Utilisateur","password":"Mot de passe",
-            "login":"Connexion","logout":"Déconnexion","invalid":"Identifiants invalides",
-            "linearity":"Linéarité","sn":"S/N","admin":"Admin","company":"Nom de la compagnie",
-            "input_csv":"CSV","input_manual":"Saisie manuelle","concentration":"Concentration","signal":"Signal",
-            "unit":"Unité","generate_pdf":"Générer PDF","download_pdf":"Télécharger PDF","download_csv":"Télécharger CSV",
-            "sn_classic":"S/N Classique","sn_usp":"S/N USP","lod":"LOD (conc.)","loq":"LOQ (conc.)",
-            "formulas":"Formules","select_region":"Sélectionner la zone","add_user":"Ajouter utilisateur",
-            "delete_user":"Supprimer utilisateur","modify_user":"Modifier mot de passe","enter_username":"Nom d'utilisateur",
-            "enter_password":"Mot de passe (simple)","upload_chrom":"Importer chromatogramme (CSV, PNG, JPG, PDF)",
-            "digitize_info":"Digitizing : OCR tenté si pytesseract installé (best-effort)",
-            "export_sn_pdf":"Exporter S/N PDF","download_original_pdf":"Télécharger PDF original",
-            "change_pwd":"Changer mot de passe (hors session)", "compute":"Compute", "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport."},
-    "EN": { "app_title":"LabT","powered":"Powered by BnB","username":"Username","password":"Password",
-            "login":"Login","logout":"Logout","invalid":"Invalid credentials",
-            "linearity":"Linearity","sn":"S/N","admin":"Admin","company":"Company name",
-            "input_csv":"CSV","input_manual":"Manual input","concentration":"Concentration","signal":"Signal",
-            "unit":"Unit","generate_pdf":"Generate PDF","download_pdf":"Download PDF","download_csv":"Download CSV",
-            "sn_classic":"S/N Classic","sn_usp":"S/N USP","lod":"LOD (conc.)","loq":"LOQ (conc.)",
-            "formulas":"Formulas","select_region":"Select region","add_user":"Add user",
-            "delete_user":"Delete user","modify_user":"Modify password","enter_username":"Username",
-            "enter_password":"Password (simple)","upload_chrom":"Upload chromatogram (CSV, PNG, JPG, PDF)",
-            "digitize_info":"Digitizing: OCR attempted if pytesseract available (best-effort)",
-            "export_sn_pdf":"Export S/N PDF","download_original_pdf":"Download original PDF",
-            "change_pwd":"Change password (outside session)", "compute":"Compute", "company_missing":"Please enter company name before generating the report."}
-}
-
-def t(key):
-    lang = st.session_state.get("lang", "FR")
-    return TEXTS.get(lang, TEXTS["FR"]).get(key, key)
-
-# -------------------------
-# Session defaults
-# -------------------------
-for key, default in [("lang","FR"),("user",None),("role",None),("linear_slope",None)]:
-    if key not in st.session_state:
-        st.session_state[key] = default
-
-# -------------------------
-# Utilities
-# -------------------------
-def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
+def create_pdf(title, content, filename="report.pdf"):
+    """Crée un PDF simple avec FPDF"""
     pdf = FPDF()
     pdf.add_page()
-    if logo_path:
-        try:
-            pdf.image(logo_path, x=10, y=8, w=20)
-            pdf.set_xy(35,10)
-        except:
-            pdf.set_xy(10,10)
-    pdf.set_font("Arial","B",14)
-    pdf.cell(0,10,title,ln=1,align="C")
-    pdf.ln(4)
-    pdf.set_font("Arial","",11)
-    for line in lines:
-        pdf.multi_cell(0,7,line)
-    if img_bytes:
-        try:
-            if isinstance(img_bytes, io.BytesIO):
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpf:
-                    tmpf.write(img_bytes.getvalue())
-                    tmpname = tmpf.name
-                pdf.ln(4)
-                pdf.image(tmpname, x=20, w=170)
-            elif isinstance(img_bytes, bytes):
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpf:
-                    tmpf.write(img_bytes)
-                    tmpname = tmpf.name
-                pdf.ln(4)
-                pdf.image(tmpname, x=20, w=170)
-            else:
-                pdf.ln(4)
-                pdf.image(img_bytes, x=20, w=170)
-        except:
-            pass
-    return pdf.output(dest="S").encode("latin1")
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, title, ln=True, align="C")
+    pdf.ln(10)
+    for line in content:
+        pdf.multi_cell(0, 10, line)
+    pdf.output(filename)
+    st.success(f"PDF généré : {filename}")
 
-def extract_xy_from_image_pytesseract(img: Image.Image):
-    if pytesseract is None:
-        return pd.DataFrame(columns=["X","Y"])
-    text = pytesseract.image_to_string(img)
-    rows=[]
-    for line in text.splitlines():
-        if not line.strip(): continue
-        for sep in [",",";","\t"]:
-            if sep in line:
-                parts = [p.strip() for p in line.split(sep) if p.strip()!=""]
-                if len(parts)>=2:
-                    try:
-                        x=float(parts[0].replace(",",".")); y=float(parts[1].replace(",","."))
-                        rows.append([x,y]); break
-                    except: pass
-        else:
-            parts=line.split()
-            if len(parts)>=2:
-                try:
-                    x=float(parts[0].replace(",",".")); y=float(parts[1].replace(",","."))
-                    rows.append([x,y])
-                except: pass
-    return pd.DataFrame(rows, columns=["X","Y"])
+# ----------------
+# Session utilisateur
+# ----------------
 
-# -------------------------
-# Panels
-# -------------------------
-def login_screen():
-    st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
-    lang=st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1, key="login_lang")
-    st.session_state.lang=lang
-    with st.form("login_form"):
-        cols=st.columns([2,1])
-        with cols[0]: username=st.text_input(t("username"), key="username_login")
-        with cols[1]: password=st.text_input(t("password"), type="password", key="password_login")
-        submitted=st.form_submit_button(t("login"))
-    if submitted:
-        uname=(username or "").strip()
-        if not uname: st.error(t("invalid")); return
-        matched=None
-        for u in USERS:
-            if u.lower()==uname.lower(): matched=u; break
-        if matched and USERS[matched]["password"]==(password or ""):
-            st.session_state.user=matched
-            st.session_state.role=USERS[matched].get("role","user")
-            return
-        else: st.error(t("invalid"))
-    st.markdown(f"<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>{t('powered')}</div>", unsafe_allow_html=True)
-    with st.expander(t("change_pwd"), expanded=False):
-        st.write("Change a user's password (works even if not logged in).")
-        u_name=st.text_input("Username to change", key="chg_user")
-        u_pwd=st.text_input("New password", type="password", key="chg_pwd")
-        if st.button("Change password", key="chg_btn"):
-            if not u_name.strip() or not u_pwd: st.warning("Enter username and new password")
-            else:
-                found=None
-                for u in USERS:
-                    if u.lower()==u_name.strip().lower(): found=u; break
-                if not found: st.warning("User not found")
-                else: USERS[found]["password"]=u_pwd.strip(); save_users(USERS); st.success(f"Password updated for {found}")
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
+if 'user' not in st.session_state:
+    st.session_state['user'] = None
+# ================================
+# app.py - Partie 2
+# Traitement CSV et chromatogramme
+# ================================
 
-# -------------------------
-# Main
-# -------------------------
-def main():
-    if st.session_state.user is None:
-        login_screen()
-        return
-    st.sidebar.write(f"User: {st.session_state.user} ({st.session_state.role})")
-    st.sidebar.button(t("logout"), on_click=lambda: st.session_state.update({"user":None,"role":None}))
-    if st.session_state.role=="admin":
-        panel=st.sidebar.selectbox("Admin panel", ["Admin","Linearity","S/N"])
-        if panel=="Admin": admin_panel()
-        elif panel=="Linearity": linearity_panel()
-        else: sn_panel()
+# ----------------
+# Lecture de chromatogrammes
+# ----------------
+
+def extract_chrom_data(df, time_col="Time", signal_col="Signal"):
+    """Extrait les colonnes temps et signal d'un DataFrame"""
+    if time_col not in df.columns or signal_col not in df.columns:
+        st.error(f"Colonnes attendues non trouvées : {time_col}, {signal_col}")
+        return None, None
+    return df[time_col].values, df[signal_col].values
+
+def plot_chrom(time, signal, title="Chromatogramme"):
+    """Affiche un chromatogramme avec matplotlib"""
+    fig, ax = plt.subplots()
+    ax.plot(time, signal, color="blue")
+    ax.set_xlabel("Temps")
+    ax.set_ylabel("Signal")
+    ax.set_title(title)
+    st.pyplot(fig)
+
+# ----------------
+# Traitement d'images / PDF de chromatogrammes
+# ----------------
+
+def load_chrom_image(file):
+    """Charge une image et retourne un objet PIL"""
+    try:
+        img = Image.open(file)
+        return img
+    except Exception as e:
+        st.error(f"Erreur lors du chargement de l'image : {e}")
+        return None
+
+def pdf_to_images(pdf_file):
+    """Convertit un PDF en images (liste de pages)"""
+    try:
+        pages = convert_from_path(pdf_file)
+        return pages
+    except Exception as e:
+        st.error(f"Erreur lors de la conversion PDF : {e}")
+        return None
+
+# ----------------
+# Extraction simple des données à partir d'image (option OCR si nécessaire)
+# ----------------
+
+def extract_signal_from_image(img):
+    """
+    Extraction simplifiée du signal à partir d'une image.
+    Placeholder pour intégration OCR / analyse de graphique.
+    """
+    st.warning("Extraction du signal depuis image non implémentée. Fonction placeholder.")
+    return None, None
+# ================================
+# app.py - Partie 3
+# Calcul S/N, LOD, LOQ et export
+# ================================
+
+# ----------------
+# Calcul du signal-to-noise
+# ----------------
+def calculate_sn(signal, noise_region=None):
+    """
+    Calcule le rapport signal sur bruit (S/N)
+    signal : tableau numpy du pic
+    noise_region : tuple (start_idx, end_idx) pour bruit de fond
+    """
+    if noise_region:
+        noise = np.std(signal[noise_region[0]:noise_region[1]])
     else:
-        panel=st.sidebar.selectbox("Panel", ["Linearity","S/N"])
-        if panel=="Linearity": linearity_panel()
-        else: sn_panel()
+        # Si pas de région de bruit fournie, estimation sur tout le signal
+        noise = np.std(signal)
+    peak_height = np.max(signal) - np.min(signal)
+    if noise == 0:
+        st.warning("Bruit nul détecté, S/N infini")
+        return np.inf
+    return peak_height / noise
 
-if __name__=="__main__":
+# ----------------
+# Calcul LOD et LOQ
+# ----------------
+def calculate_lod_loq(signal, noise_region=None):
+    sn = calculate_sn(signal, noise_region)
+    # Formule classique : LOD = 3*noise, LOQ = 10*noise
+    if noise_region:
+        noise = np.std(signal[noise_region[0]:noise_region[1]])
+    else:
+        noise = np.std(signal)
+    lod = 3 * noise
+    loq = 10 * noise
+    return lod, loq, sn
+
+# ----------------
+# Export CSV
+# ----------------
+def export_csv(data, filename="results.csv"):
+    """
+    Export d'un dictionnaire ou DataFrame en CSV
+    """
+    if isinstance(data, dict):
+        df = pd.DataFrame([data])
+    else:
+        df = data
+    df.to_csv(filename, index=False)
+    st.success(f"Fichier CSV sauvegardé : {filename}")
+
+# ----------------
+# Export PDF
+# ----------------
+def export_pdf_plot(fig, filename="results.pdf"):
+    """
+    Sauvegarde un graphique matplotlib en PDF
+    """
+    try:
+        fig.savefig(filename)
+        st.success(f"PDF sauvegardé : {filename}")
+    except Exception as e:
+        st.error(f"Erreur export PDF : {e}")
+# ================================
+# app.py - Partie 4
+# Interface moderne sans sidebar
+# ================================
+
+# ----------------
+# Fonction principale
+# ----------------
+def main():
+    st.set_page_config(page_title="LabT", layout="wide")
+    st.title("LabT - Analyse de chromatogrammes")
+
+    # ----------------
+    # Connexion / Authentification simple
+    # ----------------
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+        st.session_state.user = None
+
+    if not st.session_state.logged_in:
+        st.subheader("Connexion")
+        username = st.text_input("Nom d'utilisateur")
+        password = st.text_input("Mot de passe", type="password")
+        if st.button("Se connecter"):
+            if username == "admin" and password == "admin":
+                st.session_state.logged_in = True
+                st.session_state.user = "admin"
+            elif username == "user" and password == "user":
+                st.session_state.logged_in = True
+                st.session_state.user = "user"
+            else:
+                st.error("Utilisateur ou mot de passe invalide")
+        return
+
+    st.sidebar.success(f"Connecté en tant que : {st.session_state.user}")
+
+    # ----------------
+    # Panels utilisateur/admin
+    # ----------------
+    panel_options = ["Analyse", "Admin"] if st.session_state.user == "admin" else ["Analyse"]
+    panel = st.radio("Menu", panel_options)
+
+    if panel == "Analyse":
+        analysis_panel()
+    elif panel == "Admin":
+        admin_panel()
+
+# ----------------
+# Panel Analyse
+# ----------------
+def analysis_panel():
+    st.header("Analyse chromatogramme")
+
+    uploaded_file = st.file_uploader("Importer CSV ou PDF", type=["csv","pdf"])
+    if uploaded_file:
+        # Lecture CSV
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file)
+            st.dataframe(df)
+            # Calcul exemple S/N
+            if 'Signal' in df.columns:
+                lod, loq, sn = calculate_lod_loq(df['Signal'].values)
+                st.write(f"S/N: {sn:.2f}, LOD: {lod:.2f}, LOQ: {loq:.2f}")
+                export_csv({"S/N": sn, "LOD": lod, "LOQ": loq})
+        # Lecture PDF
+        elif uploaded_file.name.endswith(".pdf"):
+            images = pdf2image.convert_from_bytes(uploaded_file.read())
+            st.image(images, width=600)
+            st.info("Extraction de données PDF non implémentée ici")
+
+# ----------------
+# Panel Admin
+# ----------------
+def admin_panel():
+    st.header("Panel Admin")
+    st.write("Gestion utilisateurs et paramètres avancés")
+    st.button("Déconnexion", on_click=logout)
+
+# ----------------
+# Déconnexion
+# ----------------
+def logout():
+    st.session_state.logged_in = False
+    st.session_state.user = None
+    st.experimental_rerun()
+
+# ----------------
+# Lancement de l'application
+# ----------------
+if __name__ == "__main__":
     main()

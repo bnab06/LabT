@@ -1,21 +1,16 @@
-# Streamlit et interface
-streamlit==1.50.0
+# =========================
+# requirements.txt pour LabT
+# =========================
 
-# Data et calcul
+streamlit==1.50.0
 pandas==2.1.1
 numpy==1.26.2
 matplotlib==3.8.0
-
-# PDF et images
 fpdf==1.7.2
 Pillow==10.1.0
-pdf2image>=1.16.0
-
-# OCR (adapté pour Python 3.11)
-pytesseract==0.3.13
-
-# Rich pour logs et formatage console
-rich>=10.14.0
+pdf2image>=1.17.0
+pytesseract==0.3.13  # version compatible Python 3.11
+rich==14.2.0
 markdown-it-py==4.0.0
 mdurl==0.1.2
 pygments==2.19.2
