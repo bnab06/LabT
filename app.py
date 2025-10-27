@@ -225,6 +225,59 @@ def login_screen():
 # app.py (Partie 2/2)
 
 # -------------------------
+# Admin panel (user management)
+# -------------------------
+def admin_panel():
+    st.header(t("admin"))
+    st.write(t("add_user"))
+    col_left, col_right = st.columns([2, 1])
+
+    with col_left:
+        st.subheader("Existing users")
+        for u, info in list(USERS.items()):
+            rcols = st.columns([3, 1, 1])
+            rcols[0].write(f"{u} — role: {info.get('role', 'user')}")
+            if rcols[1].button("Modify", key=f"mod_{u}"):
+                # show expander with fields when modifying
+                with st.expander(f"Modify {u}", expanded=True):
+                    new_pwd = st.text_input(f"New password for {u}", type="password", key=f"newpwd_{u}")
+                    new_role = st.selectbox("Role", ["user", "admin"], index=0 if info.get("role", "user") == "user" else 1, key=f"newrole_{u}")
+                    if st.button("Save", key=f"save_{u}"):
+                        if new_pwd:
+                            USERS[u]["password"] = new_pwd
+                        USERS[u]["role"] = new_role
+                        save_users(USERS)
+                        st.success(f"Updated {u}")
+                        return  # force rerun to refresh UI
+            if rcols[2].button("Delete", key=f"del_{u}"):
+                if u.lower() == "admin":
+                    st.warning("Cannot delete admin")
+                else:
+                    USERS.pop(u)
+                    save_users(USERS)
+                    st.success(f"{u} deleted")
+                    return
+
+    with col_right:
+        st.subheader(t("add_user"))
+        with st.form("form_add_user"):
+            new_user = st.text_input(t("enter_username"), key="add_username")
+            new_pass = st.text_input(t("enter_password"), type="password", key="add_password")
+            role = st.selectbox("Role", ["user", "admin"], key="add_role")
+            add_sub = st.form_submit_button("Add")
+        if add_sub:
+            if not new_user.strip() or not new_pass.strip():
+                st.warning("Enter username and password")
+            else:
+                if any(u.lower() == new_user.strip().lower() for u in USERS):
+                    st.warning("User exists")
+                else:
+                    USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
+                    save_users(USERS)
+                    st.success(f"User {new_user.strip()} added")
+                    return
+
+# -------------------------
 # Linearity panel
 # -------------------------
 def linearity_panel():
@@ -311,9 +364,63 @@ def linearity_panel():
     ax.legend()
     st.pyplot(fig)
 
+    # unknown conversions — use Compute button to avoid default-zero pitfalls
+    calc_choice = st.radio("Calculate", [f"{t('signal')} → {t('concentration')}", f"{t('concentration')} → {t('signal')}"], key="lin_calc_choice")
+    if calc_choice.startswith(t("signal")):
+        val = st.number_input("Enter signal", format="%.4f", key="lin_in_signal", value=None if "lin_in_signal" not in st.session_state else st.session_state.lin_in_signal)
+        if st.button(t("compute"), key="lin_compute_signal"):
+            try:
+                if slope == 0:
+                    st.error("Slope is zero, cannot compute concentration.")
+                else:
+                    conc = (val - intercept) / slope
+                    st.success(f"Concentration = {conc:.4f} {unit}")
+            except Exception:
+                st.error("Cannot compute (check inputs).")
+    else:
+        val = st.number_input("Enter concentration", format="%.4f", key="lin_in_conc", value=None if "lin_in_conc" not in st.session_state else st.session_state.lin_in_conc)
+        if st.button(t("compute"), key="lin_compute_conc"):
+            try:
+                sigp = slope * val + intercept
+                st.success(f"Predicted signal = {sigp:.4f}")
+            except Exception:
+                st.error("Cannot compute (check inputs).")
+
+    # formulas in small expander (discreet)
+    with st.expander(t("formulas"), expanded=False):
+        st.markdown(r"""
+        **Linearity:** \( y = slope \cdot X + intercept \)  
+        **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
+        **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
+        """)
+
+    # export PDF (in memory) -- require company name
+    if st.button(t("generate_pdf"), key="lin_pdf"):
+        if not company or company.strip() == "":
+            st.warning(t("company_missing"))
+        else:
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
+            buf.seek(0)
+            lines = [
+                f"Company: {company or 'N/A'}",
+                f"User: {st.session_state.user or 'Unknown'}",
+                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"Slope: {slope:.4f}",
+                f"Intercept: {intercept:.4f}",
+                f"R²: {r2:.4f}"
+            ]
+            logo_path = LOGO_FILE if (LOGO_FILE and (Path := None) or True) else None
+            try:
+                import os
+                logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
+            except Exception:
+                logo_path = None
+            pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=logo_path)
+            st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
 
 # -------------------------
-# S/N panel full with original-scale extraction
+# S/N panel full with original-scale extraction + sliders on plot
 # -------------------------
 def sn_panel_full():
     st.header(t("sn"))
@@ -377,6 +484,7 @@ def sn_panel_full():
             img = Image.open(uploaded).convert("RGB")
             st.image(img, caption=uploaded.name, use_column_width=True)
             arr = np.array(img.convert("L"))
+            # vertical max projection to recover chromatogram shape
             signal = arr.max(axis=0).astype(float)
             time_index = np.arange(len(signal))
         except Exception as e:
@@ -408,11 +516,39 @@ def sn_panel_full():
         st.error("Unsupported file type")
         return
 
-    # Region selection sliders
+    # Region selection sliders + plot overlay
     if signal is not None:
         n = len(signal)
         st.subheader(t("select_region"))
-        start, end = st.slider("", 0, n - 1, (0, n-1), key="sn_region_slider")
+
+        # default region
+        default_start = 0
+        default_end = n - 1
+
+        # create plotting area and interactive sliders below
+        # show full chromatogram and highlight selected region after slider update
+        start, end = st.slider("", 0, n - 1, (default_start, default_end), key="sn_region_slider")
+
+        # ensure time_index is numeric-like for plotting x axis
+        try:
+            x_axis = np.array(time_index)
+            # if any non-numeric values, fallback to range
+            if not np.issubdtype(x_axis.dtype, np.number):
+                x_axis = np.arange(n)
+        except Exception:
+            x_axis = np.arange(n)
+
+        # plot full signal and overlay chosen region
+        fig, ax = plt.subplots(figsize=(10, 3))
+        ax.plot(x_axis, signal, label="Chromatogram")
+        # highlight selected region
+        ax.plot(x_axis[start:end+1], signal[start:end+1], linewidth=2.0, label="Selected region")
+        ax.axvspan(x_axis[start], x_axis[end], color="orange", alpha=0.2)
+        ax.set_xlabel("Time / Points")
+        ax.set_ylabel("Signal")
+        ax.legend()
+        st.pyplot(fig)
+
         region = signal[start:end+1]
         if len(region) < 2:
             st.warning("Select a larger region")
@@ -422,6 +558,8 @@ def sn_panel_full():
         baseline = float(np.mean(region))
         height = peak - baseline
         noise_std = float(np.std(region, ddof=0))
+
+        # unit selection for concentration conversion (for LOD/LOQ)
         unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_region")
 
         sn_classic = peak / noise_std if noise_std != 0 else float("nan")
@@ -438,15 +576,24 @@ def sn_panel_full():
                 st.write(f"{t('lod')} ({unit}): {lod:.4f}")
                 st.write(f"{t('loq')} ({unit}): {loq:.4f}")
 
+        # Formulas (discreet)
+        with st.expander(t("formulas"), expanded=False):
+            st.markdown(r"""
+            **Classic S/N:** \( \dfrac{Signal_{peak}}{\sigma_{noise}} \)  
+            **USP S/N:** \( \dfrac{Height}{\sigma_{noise}} \) where Height ≈ (peak - baseline)  
+            **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
+            **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
+            """)
+
         # Export CSV
         csv_buf = io.StringIO()
-        pd.DataFrame({"Point": np.arange(start, end+1), "Signal": region}).to_csv(csv_buf, index=False)
+        pd.DataFrame({"Point": x_axis[start:end+1], "Signal": region}).to_csv(csv_buf, index=False)
         st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
 
-        # Export PDF
+        # Export PDF (with real x axis if available)
         if st.button(t("export_sn_pdf"), key="sn_export_pdf"):
             ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(time_index[start:end+1], region)  # utilise time_index pour axes réels
+            axf.plot(x_axis[start:end+1], region)
             axf.set_title("Selected region")
             axf.set_xlabel("Time (original)")
             axf.set_ylabel("Signal")
@@ -473,15 +620,6 @@ def sn_panel_full():
                 logo_path = None
             pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button("Download S/N PDF", pdfb, file_name="sn_report.pdf", mime="application/pdf")
-
-
-# -------------------------
-# Admin panel (empty placeholder)
-# -------------------------
-def admin_panel():
-    st.header(t("admin"))
-    st.write("Admin features can be added here.")
-    # Add user management features if needed
 
 # -------------------------
 # Main app
