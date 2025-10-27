@@ -91,6 +91,8 @@ if "role" not in st.session_state:
     st.session_state.role = None
 if "linear_slope" not in st.session_state:
     st.session_state.linear_slope = None
+if "force_rerun" not in st.session_state:
+    st.session_state.force_rerun = False
 
 # -------------------------
 # Utility: create PDF bytes
@@ -130,6 +132,7 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
         except Exception:
             pass
     return pdf.output(dest="S").encode("latin1")
+# app.py (Partie 2/2)
 
 # -------------------------
 # OCR helper
@@ -220,7 +223,6 @@ def login_screen():
                     USERS[found]["password"] = u_pwd.strip()
                     save_users(USERS)
                     st.success(f"Password updated for {found}")
-
 # -------------------------
 # Linearity panel
 # -------------------------
@@ -307,62 +309,10 @@ def linearity_panel():
     ax.set_ylabel(t("signal"))
     ax.legend()
     st.pyplot(fig)
-# app.py (Partie 2/2)
+
 
 # -------------------------
-# Admin panel
-# -------------------------
-def admin_panel():
-    st.header(t("admin"))
-    st.write(t("add_user"))
-    col_left, col_right = st.columns([2, 1])
-
-    with col_left:
-        st.subheader("Existing users")
-        for u, info in list(USERS.items()):
-            rcols = st.columns([3, 1, 1])
-            rcols[0].write(f"{u} — role: {info.get('role', 'user')}")
-            if rcols[1].button("Modify", key=f"mod_{u}"):
-                with st.expander(f"Modify {u}", expanded=True):
-                    new_pwd = st.text_input(f"New password for {u}", type="password", key=f"newpwd_{u}")
-                    new_role = st.selectbox("Role", ["user", "admin"], index=0 if info.get("role", "user") == "user" else 1, key=f"newrole_{u}")
-                    if st.button("Save", key=f"save_{u}"):
-                        if new_pwd:
-                            USERS[u]["password"] = new_pwd
-                        USERS[u]["role"] = new_role
-                        save_users(USERS)
-                        st.success(f"Updated {u}")
-                        return
-            if rcols[2].button("Delete", key=f"del_{u}"):
-                if u.lower() == "admin":
-                    st.warning("Cannot delete admin")
-                else:
-                    USERS.pop(u)
-                    save_users(USERS)
-                    st.success(f"{u} deleted")
-                    return
-
-    with col_right:
-        st.subheader(t("add_user"))
-        with st.form("form_add_user"):
-            new_user = st.text_input(t("enter_username"), key="add_username")
-            new_pass = st.text_input(t("enter_password"), type="password", key="add_password")
-            role = st.selectbox("Role", ["user", "admin"], key="add_role")
-            add_sub = st.form_submit_button("Add")
-        if add_sub:
-            if not new_user.strip() or not new_pass.strip():
-                st.warning("Enter username and password")
-            else:
-                if any(u.lower() == new_user.strip().lower() for u in USERS):
-                    st.warning("User exists")
-                else:
-                    USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
-                    save_users(USERS)
-                    st.success(f"User {new_user.strip()} added")
-                    return
-
-# -------------------------
-# Signal / Noise panel (full) with axes preservation
+# S/N panel full with original-scale extraction
 # -------------------------
 def sn_panel_full():
     st.header(t("sn"))
@@ -375,13 +325,12 @@ def sn_panel_full():
     else:
         sn_manual_mode = False
 
-    # Manual input mode
+    # Manual input
     if sn_manual_mode:
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=1.0)
         h = st.number_input("h (noise)", value=0.1)
         slope_input = st.number_input("Slope (optional for conc. calculation)", value=float(st.session_state.linear_slope or 1.0))
-        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0)
         if st.button("Compute S/N"):
             sn_classic = H / h if h != 0 else float("nan")
             sn_usp = 2 * H / h if h != 0 else float("nan")
@@ -405,10 +354,10 @@ def sn_panel_full():
             df = pd.read_csv(uploaded)
             cols_low = [c.lower() for c in df.columns]
             if "time" in cols_low and "signal" in cols_low:
-                time_index = pd.to_numeric(df.iloc[:, cols_low.index("time")], errors="coerce").fillna(0).values
+                time_index = df.iloc[:, cols_low.index("time")].values
                 signal = pd.to_numeric(df.iloc[:, cols_low.index("signal")], errors="coerce").fillna(0).values
             elif len(df.columns) >= 2:
-                time_index = pd.to_numeric(df.iloc[:, 0], errors="coerce").fillna(0).values
+                time_index = df.iloc[:, 0].values
                 signal = pd.to_numeric(df.iloc[:, 1], errors="coerce").fillna(0).values
             else:
                 st.error("CSV must have at least two columns (time, signal).")
@@ -427,7 +376,7 @@ def sn_panel_full():
             st.image(img, caption=uploaded.name, use_column_width=True)
             arr = np.array(img.convert("L"))
             signal = arr.max(axis=0).astype(float)
-            time_index = np.arange(len(signal))  # approximate x-axis
+            time_index = np.arange(len(signal))
         except Exception as e:
             st.error(f"Image error: {e}")
             return
@@ -449,7 +398,7 @@ def sn_panel_full():
             st.image(img, caption=uploaded.name, use_column_width=True)
             arr = np.array(img.convert("L"))
             signal = arr.max(axis=0).astype(float)
-            time_index = np.arange(len(signal))  # approximate x-axis
+            time_index = np.arange(len(signal))
         except Exception as e:
             st.error(f"PDF error: {e}")
             return
@@ -463,7 +412,6 @@ def sn_panel_full():
         st.subheader(t("select_region"))
         start, end = st.slider("", 0, n - 1, (0, n-1), key="sn_region_slider")
         region = signal[start:end+1]
-        region_time = time_index[start:end+1] if time_index is not None else np.arange(len(region))
         if len(region) < 2:
             st.warning("Select a larger region")
             return
@@ -479,8 +427,6 @@ def sn_panel_full():
         st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
         st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
 
-        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0)
-
         if st.session_state.linear_slope is not None:
             slope = st.session_state.linear_slope
             if slope != 0:
@@ -491,15 +437,15 @@ def sn_panel_full():
 
         # Export CSV
         csv_buf = io.StringIO()
-        pd.DataFrame({"Time": region_time, "Signal": region}).to_csv(csv_buf, index=False)
+        pd.DataFrame({"Point": np.arange(start, end+1), "Signal": region}).to_csv(csv_buf, index=False)
         st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
 
         # Export PDF
         if st.button(t("export_sn_pdf"), key="sn_export_pdf"):
             ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(region_time, region)
+            axf.plot(time_index[start:end+1], region)  # utilise time_index pour axes réels
             axf.set_title("Selected region")
-            axf.set_xlabel("Time")
+            axf.set_xlabel("Time (original)")
             axf.set_ylabel("Signal")
             buf = io.BytesIO()
             ffig.savefig(buf, format="png", bbox_inches="tight")
@@ -524,6 +470,7 @@ def sn_panel_full():
                 logo_path = None
             pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button("Download S/N PDF", pdfb, file_name="sn_report.pdf", mime="application/pdf")
+
 
 # -------------------------
 # Main app
@@ -550,7 +497,10 @@ def main_app():
         st.session_state.user = None
         st.session_state.role = None
         st.session_state.linear_slope = None
+        # Fix rerun without error
+        st.session_state.force_rerun = not st.session_state.force_rerun
         st.experimental_rerun()
+
 
 # -------------------------
 # Entry point
