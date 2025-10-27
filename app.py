@@ -366,11 +366,85 @@ def linearity_panel():
 # S/N panel
 # -------------------------
 def sn_panel_full():
-    # CODE TEL QUE FOURNI PRÉCÉDEMMENT
-    # Copier exactement la fonction sn_panel_full fournie dans la réponse précédente
-    # (pour garder les sliders sur l’axe des points et calcul sur image originale)
-    from copy import deepcopy
-    exec(deepcopy(sn_panel_full.__code__))
+    st.header(t("sn"))
+    st.write(t("digitize_info"))
+
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv", "png", "jpg", "jpeg", "pdf"], key="sn_upload")
+    if uploaded is None:
+        st.info("Please upload a chromatogram file.")
+        return
+
+    df = None
+    img = None
+
+    if uploaded.name.lower().endswith(".csv"):
+        try:
+            df = pd.read_csv(uploaded)
+            st.success("CSV loaded successfully")
+        except Exception as e:
+            st.error(f"CSV error: {e}")
+            return
+    elif uploaded.name.lower().endswith(".pdf"):
+        if convert_from_bytes is None:
+            st.warning("pdf2image not installed. Cannot process PDF.")
+            return
+        pages = convert_from_bytes(uploaded.read(), dpi=200)
+        if pages:
+            img = pages[0]
+    else:
+        img = Image.open(uploaded)
+
+    if img is not None:
+        st.image(img, caption="Uploaded image", use_column_width=True)
+        df_img = extract_xy_from_image_pytesseract(img)
+        if not df_img.empty:
+            df = df_img
+            st.success("Data digitized from image")
+
+    if df is None:
+        st.warning("No data available for S/N calculation.")
+        return
+
+    # Vérifier colonnes
+    if df.shape[1] >= 2:
+        df = df.iloc[:, :2]
+        df.columns = ["X", "Y"]
+
+    # Convertir en numérique
+    try:
+        df["X"] = pd.to_numeric(df["X"])
+        df["Y"] = pd.to_numeric(df["Y"])
+    except Exception:
+        st.error("Data columns must be numeric.")
+        return
+
+    st.subheader("Select region for S/N")
+    min_x = float(df["X"].min())
+    max_x = float(df["X"].max())
+    start, end = st.slider(t("select_region"), min_x, max_x, (min_x, max_x))
+
+    region = df[(df["X"] >= start) & (df["X"] <= end)]
+    if region.empty:
+        st.warning("No data in selected region")
+        return
+
+    # Calcul S/N classique
+    signal = region["Y"].max()
+    noise = region["Y"].std() if len(region) > 1 else 0.0
+    sn_ratio = signal / noise if noise != 0 else float("inf")
+
+    st.metric("Signal", f"{signal:.4f}")
+    st.metric("Noise", f"{noise:.4f}")
+    st.metric("S/N", f"{sn_ratio:.4f}")
+
+    # Affichage graphique
+    fig, ax = plt.subplots(figsize=(7,3))
+    ax.plot(df["X"], df["Y"], label="Chromatogram")
+    ax.axvspan(start, end, color="orange", alpha=0.3, label="Selected region")
+    ax.set_xlabel("Time / X")
+    ax.set_ylabel("Signal / Y")
+    ax.legend()
+    st.pyplot(fig)
 
 # -------------------------
 # Main app
