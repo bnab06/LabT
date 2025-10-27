@@ -1,17 +1,14 @@
 {
-  "admin": {
-    "password": "admin",
-    "role": "admin",
-    "email": "admin@example.com"
-  },
-  "bb": {
-    "password": "bb",
-    "role": "user",
-    "email": "bb@example.com"
-  },
-  "user": {
-    "password": "user",
-    "role": "user",
-    "email": "user@example.com"
-  }
+    "admin": {
+        "password": "admin123",
+        "role": "admin"
+    },
+    "user": {
+        "password": "user123",
+        "role": "user"
+    },
+    "bahi": {
+        "password": "bahi123",
+        "role": "user"
+    }
 }
