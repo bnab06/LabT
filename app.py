@@ -1,3 +1,4 @@
+# app.py (Complet)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -131,6 +132,7 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
         except Exception:
             pass
     return pdf.output(dest="S").encode("latin1")
+
 # -------------------------
 # OCR helper
 # -------------------------
@@ -163,7 +165,6 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
                 except:
                     pass
     return pd.DataFrame(rows, columns=["X", "Y"])
-
 
 # -------------------------
 # Login screen
@@ -221,7 +222,6 @@ def login_screen():
                     USERS[found]["password"] = u_pwd.strip()
                     save_users(USERS)
                     st.success(f"Password updated for {found}")
-
 
 # -------------------------
 # Linearity panel
@@ -310,38 +310,8 @@ def linearity_panel():
     ax.legend()
     st.pyplot(fig)
 
-
 # -------------------------
-# Admin panel
-# -------------------------
-def admin_panel():
-    st.header(t("admin"))
-    st.write("User management")
-    with st.expander(t("add_user")):
-        new_user = st.text_input("New username", key="new_user")
-        new_pwd = st.text_input("Password", type="password", key="new_pwd")
-        role = st.selectbox("Role", ["user", "admin"], key="new_role")
-        if st.button("Add user", key="btn_add_user"):
-            if not new_user.strip() or not new_pwd:
-                st.warning("Enter username and password")
-            else:
-                if new_user in USERS:
-                    st.warning("User already exists")
-                else:
-                    USERS[new_user.strip()] = {"password": new_pwd.strip(), "role": role}
-                    save_users(USERS)
-                    st.success(f"User {new_user.strip()} added")
-    with st.expander(t("delete_user")):
-        del_user = st.selectbox("Select user to delete", list(USERS.keys()), key="del_user")
-        if st.button("Delete user", key="btn_del_user"):
-            if del_user in USERS:
-                USERS.pop(del_user)
-                save_users(USERS)
-                st.success(f"User {del_user} deleted")
-
-
-# -------------------------
-# Main S/N panel
+# S/N panel full
 # -------------------------
 def sn_panel_full():
     st.header(t("sn"))
@@ -354,13 +324,12 @@ def sn_panel_full():
     else:
         sn_manual_mode = False
 
-    # --- Manual input ---
+    # Manual input
     if sn_manual_mode:
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=1.0)
         h = st.number_input("h (noise)", value=0.1)
         slope_input = st.number_input("Slope (optional for conc. calculation)", value=float(st.session_state.linear_slope or 1.0))
-        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
         if st.button("Compute S/N"):
             sn_classic = H / h if h != 0 else float("nan")
             sn_usp = 2 * H / h if h != 0 else float("nan")
@@ -373,12 +342,11 @@ def sn_panel_full():
                 st.write(f"{t('loq')} ({unit}): {loq:.4f}")
         return
 
-    # --- File-based input (CSV / Image / PDF) ---
+    # --- CSV / Image / PDF parsing and S/N calculation ---
     ext = uploaded.name.split(".")[-1].lower()
     signal = None
     time_index = None
 
-    # CSV
     if ext == "csv":
         try:
             uploaded.seek(0)
@@ -398,8 +366,6 @@ def sn_panel_full():
         except Exception as e:
             st.error(f"CSV error: {e}")
             return
-
-    # Image
     elif ext in ("png", "jpg", "jpeg"):
         try:
             uploaded.seek(0)
@@ -411,8 +377,6 @@ def sn_panel_full():
         except Exception as e:
             st.error(f"Image error: {e}")
             return
-
-    # PDF
     elif ext == "pdf":
         if convert_from_bytes is None:
             st.warning("PDF digitizing requires pdf2image + poppler.")
@@ -437,7 +401,6 @@ def sn_panel_full():
         st.error("Unsupported file type")
         return
 
-    # Region selection
     if signal is not None:
         n = len(signal)
         st.subheader(t("select_region"))
@@ -451,12 +414,12 @@ def sn_panel_full():
         baseline = float(np.mean(region))
         height = peak - baseline
         noise_std = float(np.std(region, ddof=0))
+
         sn_classic = peak / noise_std if noise_std != 0 else float("nan")
         sn_usp = height / noise_std if noise_std != 0 else float("nan")
+
         st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
         st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
-
-        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_file")
 
         if st.session_state.linear_slope is not None:
             slope = st.session_state.linear_slope
@@ -502,7 +465,6 @@ def sn_panel_full():
             pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button("Download S/N PDF", pdfb, file_name="sn_report.pdf", mime="application/pdf")
 
-
 # -------------------------
 # Main app
 # -------------------------
@@ -530,7 +492,6 @@ def main_app():
         st.session_state.linear_slope = None
         st.session_state.force_rerun = not st.session_state.force_rerun
         st.experimental_rerun()
-
 
 # -------------------------
 # Entry point
