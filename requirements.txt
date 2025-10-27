@@ -1,13 +1,20 @@
+# Core
 streamlit==1.50.0
 pandas==2.1.1
 numpy==1.26.2
 matplotlib==3.8.0
 fpdf==1.7.2
 Pillow==10.1.0
-pdf2image==1.16.3
-pytesseract==0.5.3
+
+# PDF / OCR
+pdf2image>=1.16.0
+pytesseract>=0.5.2
+
+# Optional scientific / utils
 scipy==1.16.2
 six==1.17.0
+
+# Git / network / system utilities
 smmap==5.0.2
 tenacity==9.1.2
 toml==0.10.2
@@ -16,3 +23,9 @@ typing-extensions==4.15.0
 tzdata==2025.2
 urllib3==2.5.0
 watchdog==6.0.0
+
+# Rich logging (optional)
+rich>=14.2.0
+markdown-it-py>=4.0.0
+pygments==2.19.2
+mdurl==0.1.2
