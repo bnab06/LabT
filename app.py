@@ -1,3 +1,4 @@
+# app.py (Partie 1/2)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -92,11 +93,6 @@ if "linear_slope" not in st.session_state:
     st.session_state.linear_slope = None
 if "force_rerun" not in st.session_state:
     st.session_state.force_rerun = False
-# -------------------------
-# Minimal admin panel
-# -------------------------
-def admin_panel():
-    st.info("Admin panel (fonctionnalité à compléter)")
 
 # -------------------------
 # Utility: create PDF bytes
@@ -169,6 +165,64 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
                 except:
                     pass
     return pd.DataFrame(rows, columns=["X", "Y"])
+
+# -------------------------
+# Login screen
+# -------------------------
+def login_screen():
+    st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
+    st.write("")
+    lang = st.selectbox("Language / Langue", ["FR", "EN"], index=0 if st.session_state.lang == "FR" else 1, key="login_lang")
+    st.session_state.lang = lang
+
+    with st.form("login_form", clear_on_submit=False):
+        cols = st.columns([2, 1])
+        with cols[0]:
+            username = st.text_input(t("username"), key="username_login")
+        with cols[1]:
+            password = st.text_input(t("password"), type="password", key="password_login")
+        submitted = st.form_submit_button(t("login"))
+
+    if submitted:
+        uname = (username or "").strip()
+        if not uname:
+            st.error(t("invalid"))
+            return
+        matched = None
+        for u in USERS:
+            if u.lower() == uname.lower():
+                matched = u
+                break
+        if matched and USERS[matched]["password"] == (password or ""):
+            st.session_state.user = matched
+            st.session_state.role = USERS[matched].get("role", "user")
+            return
+        else:
+            st.error(t("invalid"))
+
+    st.markdown(f"<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>{t('powered')}</div>", unsafe_allow_html=True)
+
+    # password change outside session
+    with st.expander(t("change_pwd"), expanded=False):
+        st.write("Change a user's password (works even if not logged in).")
+        u_name = st.text_input("Username to change", key="chg_user")
+        u_pwd = st.text_input("New password", type="password", key="chg_pwd")
+        if st.button("Change password", key="chg_btn"):
+            if not u_name.strip() or not u_pwd:
+                st.warning("Enter username and new password")
+            else:
+                found = None
+                for u in USERS:
+                    if u.lower() == u_name.strip().lower():
+                        found = u
+                        break
+                if not found:
+                    st.warning("User not found")
+                else:
+                    USERS[found]["password"] = u_pwd.strip()
+                    save_users(USERS)
+                    st.success(f"Password updated for {found}")
+# app.py (Partie 2/2)
 
 # -------------------------
 # Linearity panel
@@ -256,6 +310,8 @@ def linearity_panel():
     ax.set_ylabel(t("signal"))
     ax.legend()
     st.pyplot(fig)
+
+
 # -------------------------
 # S/N panel full with original-scale extraction
 # -------------------------
@@ -270,14 +326,13 @@ def sn_panel_full():
     else:
         sn_manual_mode = False
 
-    unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit")
-
     # Manual input
     if sn_manual_mode:
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=1.0)
         h = st.number_input("h (noise)", value=0.1)
         slope_input = st.number_input("Slope (optional for conc. calculation)", value=float(st.session_state.linear_slope or 1.0))
+        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
         if st.button("Compute S/N"):
             sn_classic = H / h if h != 0 else float("nan")
             sn_usp = 2 * H / h if h != 0 else float("nan")
@@ -367,6 +422,7 @@ def sn_panel_full():
         baseline = float(np.mean(region))
         height = peak - baseline
         noise_std = float(np.std(region, ddof=0))
+        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_region")
 
         sn_classic = peak / noise_std if noise_std != 0 else float("nan")
         sn_usp = height / noise_std if noise_std != 0 else float("nan")
@@ -390,7 +446,7 @@ def sn_panel_full():
         # Export PDF
         if st.button(t("export_sn_pdf"), key="sn_export_pdf"):
             ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(time_index[start:end+1], region)
+            axf.plot(time_index[start:end+1], region)  # utilise time_index pour axes réels
             axf.set_title("Selected region")
             axf.set_xlabel("Time (original)")
             axf.set_ylabel("Signal")
@@ -420,6 +476,14 @@ def sn_panel_full():
 
 
 # -------------------------
+# Admin panel (empty placeholder)
+# -------------------------
+def admin_panel():
+    st.header(t("admin"))
+    st.write("Admin features can be added here.")
+    # Add user management features if needed
+
+# -------------------------
 # Main app
 # -------------------------
 def main_app():
@@ -444,6 +508,8 @@ def main_app():
         st.session_state.user = None
         st.session_state.role = None
         st.session_state.linear_slope = None
+        # Fix rerun without error
+        st.session_state.force_rerun = not st.session_state.force_rerun
         st.experimental_rerun()
 
 
