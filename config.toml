@@ -1,0 +1,6 @@
+# ~/.streamlit/config.toml
+[server]
+headless = true          # Pour exécuter sans navigateur
+port = 8501              # Port par défaut (modifiable si nécessaire)
+enableCORS = false       # Pour éviter les problèmes CORS
+fileWatcherType = "none" # Désactive le file watcher (résout inotify limit)
