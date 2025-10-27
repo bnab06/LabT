@@ -1,22 +1,18 @@
-# Numpy compatible avec Python 3.11
+# Noyau scientifique
 numpy>=1.25.0
-
-# Streamlit et dépendances
-streamlit>=1.30.0
-
-# Pour affichage amélioré des erreurs
-rich>=14.2.0
-
-# Pour le rendu Markdown
-markdown-it-py>=4.0.0
-mdurl~=0.1
-
-# Coloration syntaxique
-pygments>=2.19.2
-
-# Bibliothèques optionnelles que tu peux avoir dans ton app
 pandas>=2.1.0
-numpy>=1.25.0
 matplotlib>=3.8.0
 plotly>=6.0.0
-fpdf>=2.6.1
+
+# Streamlit et interface
+streamlit>=1.30.0
+rich>=14.2.0
+markdown-it-py>=4.0.0
+mdurl~=0.1
+pygments>=2.19.2
+
+# PDF
+fpdf2>=2.6.1
+
+# Options utiles
+scipy>=1.12.1
