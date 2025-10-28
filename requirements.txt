@@ -1,27 +1,8 @@
-# Streamlit web app
 streamlit>=1.25.0
-
-# Data handling
-pandas>=2.1.0
-numpy>=1.27.0
-
-# Plotting
+pandas>=2.0.0
+numpy>=1.25.0
 matplotlib>=3.8.0
-
-# PDF generation
 fpdf>=1.7.2
-
-# Image processing
 Pillow>=10.0.0
-
-# Optional: PDF to image conversion
-pdf2image>=1.16.3
-# Note: pdf2image requires Poppler.
-# On macOS: brew install poppler
-# On Windows: download binaries from http://blog.alivate.com.au/poppler-windows/ and add to PATH
-
-# Optional: OCR from images/PDF
-pytesseract>=0.3.11
-# Note: pytesseract requires Tesseract OCR engine installed and added to PATH
-# On macOS: brew install tesseract
-# On Windows: download installer from https://github.com/tesseract-ocr/tesseract
+pdf2image>=1.17.0
+pytesseract>=0.3.12

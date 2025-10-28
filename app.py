@@ -1,4 +1,4 @@
-# app.py
+# app_final.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,7 +21,9 @@ try:
 except Exception:
     pytesseract = None
 
+# -------------------------
 # Page config
+# -------------------------
 st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
 
 USERS_FILE = "users.json"
@@ -92,9 +94,7 @@ TEXTS = {
         "export_sn_pdf":"Exporter S/N PDF",
         "download_original_pdf":"Télécharger PDF original",
         "change_pwd":"Changer mot de passe (hors session)",
-        "compute":"Compute",
-        "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport.",
-        "select_section":"Section"
+        "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport."
     },
     "EN": {
         "app_title":"LabT",
@@ -132,9 +132,7 @@ TEXTS = {
         "export_sn_pdf":"Export S/N PDF",
         "download_original_pdf":"Download original PDF",
         "change_pwd":"Change password (outside session)",
-        "compute":"Compute",
-        "company_missing":"Please enter company name before generating the report.",
-        "select_section":"Section"
+        "company_missing":"Please enter company name before generating the report."
     }
 }
 
@@ -194,7 +192,16 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
     return pdf.output(dest="S").encode("latin1")
 
 # -------------------------
-# OCR helper (best-effort)
+# Helper fig->bytes
+# -------------------------
+def fig_to_bytes(fig):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    return buf
+
+# -------------------------
+# OCR helper
 # -------------------------
 def extract_xy_from_image_pytesseract(img: Image.Image):
     if pytesseract is None:
@@ -235,10 +242,10 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
 def login_screen():
     st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
     st.write("")
-    lang = st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1, key="login_lang")
+    lang = st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1)
     st.session_state.lang = lang
 
-    with st.form("login_form", clear_on_submit=False):
+    with st.form("login_form"):
         cols = st.columns([2,1])
         with cols[0]:
             username = st.text_input(t("username"), key="username_login")
@@ -248,14 +255,7 @@ def login_screen():
 
     if submitted:
         uname = (username or "").strip()
-        if not uname:
-            st.error(t("invalid"))
-            return
-        matched = None
-        for u in USERS:
-            if u.lower() == uname.lower():
-                matched = u
-                break
+        matched = next((u for u in USERS if u.lower()==uname.lower()), None)
         if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
             st.session_state.role = USERS[matched].get("role","user")
@@ -263,160 +263,92 @@ def login_screen():
         else:
             st.error(t("invalid"))
 
-    st.markdown(
-        "<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>"
-        f"{t('powered')}"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    with st.expander(t("change_pwd"), expanded=False):
-        st.write("Change a user's password (works even if not logged in).")
-        u_name = st.text_input("Username to change", key="chg_user")
-        u_pwd = st.text_input("New password", type="password", key="chg_pwd")
-        if st.button("Change password", key="chg_btn"):
-            if not u_name.strip() or not u_pwd:
-                st.warning("Enter username and new password")
-            else:
-                found = None
-                for u in USERS:
-                    if u.lower() == u_name.strip().lower():
-                        found = u
-                        break
-                if not found:
-                    st.warning("User not found")
-                else:
-                    USERS[found]["password"] = u_pwd.strip()
-                    save_users(USERS)
-                    st.success(f"Password updated for {found}")
-
 # -------------------------
 # Admin panel
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
     col_left, col_right = st.columns([2,1])
-
     with col_left:
         st.subheader("Existing users")
         users_list = list(USERS.keys())
-        sel = st.selectbox("Select user", users_list, key="admin_sel_user")
+        sel = st.selectbox("Select user", users_list)
         if sel:
             info = USERS.get(sel, {})
             st.write(f"Username: **{sel}**")
             st.write(f"Role: **{info.get('role','user')}**")
-            if st.button("Modify selected user"):
-                with st.expander(f"Modify {sel}", expanded=True):
-                    new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"newpwd_{sel}")
-                    new_role = st.selectbox("Role", ["user","admin"], index=0 if info.get("role","user")=="user" else 1, key=f"newrole_{sel}")
-                    if st.button("Save changes", key=f"save_{sel}"):
-                        if new_pwd:
-                            USERS[sel]["password"] = new_pwd
-                        USERS[sel]["role"] = new_role
-                        save_users(USERS)
-                        st.success(f"Updated {sel}")
-                        st.rerun()
             if st.button("Delete selected user"):
-                if sel.lower() == "admin":
+                if sel.lower()=="admin":
                     st.warning("Cannot delete admin")
                 else:
                     USERS.pop(sel)
                     save_users(USERS)
                     st.success(f"{sel} deleted")
-                    st.rerun()
-
+                    st.experimental_rerun()
     with col_right:
         st.subheader(t("add_user"))
         with st.form("form_add_user"):
-            new_user = st.text_input(t("enter_username"), key="add_username")
-            new_pass = st.text_input(t("enter_password"), type="password", key="add_password")
-            role = st.selectbox("Role", ["user","admin"], key="add_role")
+            new_user = st.text_input(t("enter_username"))
+            new_pass = st.text_input(t("enter_password"), type="password")
+            role = st.selectbox("Role", ["user","admin"])
             add_sub = st.form_submit_button("Add")
         if add_sub:
-            if not new_user.strip() or not new_pass.strip():
-                st.warning("Enter username and password")
-            else:
-                if any(u.lower() == new_user.strip().lower() for u in USERS):
-                    st.warning("User exists")
-                else:
-                    USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
-                    save_users(USERS)
-                    st.success(f"User {new_user.strip()} added")
-                    st.rerun()
+            if new_user.strip() and new_pass.strip() and new_user not in USERS:
+                USERS[new_user.strip()] = {"password":new_pass.strip(),"role":role}
+                save_users(USERS)
+                st.success(f"User {new_user.strip()} added")
+                st.experimental_rerun()
 
 # -------------------------
 # Linearity panel
 # -------------------------
 def linearity_panel():
     st.header(t("linearity"))
-    company = st.text_input(t("company"), key="company_name")
+    company = st.text_input(t("company"))
+    if not company:
+        st.warning(t("company_missing"))
+        return
 
-    mode = st.radio("Input mode", [t("input_csv"), t("input_manual")], key="lin_input_mode")
+    mode = st.radio("Input mode", [t("input_csv"), t("input_manual")])
     df = None
-
-    if mode == t("input_csv"):
-        uploaded = st.file_uploader("Upload CSV with two columns (concentration, signal)", type=["csv"], key="lin_csv")
+    if mode==t("input_csv"):
+        uploaded = st.file_uploader("Upload CSV with concentration, signal", type=["csv"])
         if uploaded:
             try:
                 uploaded.seek(0)
                 df0 = pd.read_csv(uploaded)
                 cols_low = [c.lower() for c in df0.columns]
                 if "concentration" in cols_low and "signal" in cols_low:
-                    df = df0.rename(columns={df0.columns[cols_low.index("concentration")]: "Concentration",
-                                             df0.columns[cols_low.index("signal")]: "Signal"})
-                elif len(df0.columns) >= 2:
-                    df = df0.iloc[:, :2].copy()
-                    df.columns = ["Concentration","Signal"]
+                    df = df0.rename(columns={df0.columns[cols_low.index("concentration")]:"Concentration",
+                                             df0.columns[cols_low.index("signal")]:"Signal"})
+                elif len(df0.columns)>=2:
+                    df = df0.iloc[:,:2].copy()
+                    df.columns=["Concentration","Signal"]
                 else:
                     st.error("CSV must contain at least two columns (concentration, signal).")
-                    df = None
             except Exception as e:
                 st.error(f"CSV error: {e}")
-                df = None
     else:
-        st.caption("Enter concentrations (comma-separated) and signals (comma-separated).")
         cols = st.columns(2)
-        conc_input = cols[0].text_area("Concentrations (comma separated)", height=120, key="lin_manual_conc")
-        sig_input = cols[1].text_area("Signals (comma separated)", height=120, key="lin_manual_sig")
-        if st.button("Load manual pairs"):
+        conc_input = cols[0].text_area("Concentrations (comma separated)")
+        sig_input = cols[1].text_area("Signals (comma separated)")
+        if conc_input.strip() and sig_input.strip():
             try:
-                concs = [float(c.replace(",",".").strip()) for c in conc_input.split(",") if c.strip()!=""]
-                sigs = [float(s.replace(",",".").strip()) for s in sig_input.split(",") if s.strip()!=""]
-                if len(concs) != len(sigs):
-                    st.error("Number of concentrations and signals must match.")
-                elif len(concs) < 2:
-                    st.warning("At least two pairs are required.")
-                else:
-                    df = pd.DataFrame({"Concentration":concs, "Signal":sigs})
-            except Exception as e:
-                st.error(f"Manual parse error: {e}")
-
-    unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="lin_unit")
+                concs = [float(c.replace(",",".")) for c in conc_input.split(",") if c.strip()!=""]
+                sigs = [float(s.replace(",",".")) for s in sig_input.split(",") if s.strip()!=""]
+                if len(concs)==len(sigs) and len(concs)>=2:
+                    df = pd.DataFrame({"Concentration":concs,"Signal":sigs})
+            except:
+                st.error("Manual parse error")
 
     if df is None:
-        st.info("Please provide data (CSV or manual).")
         return
-
-    try:
-        df["Concentration"] = pd.to_numeric(df["Concentration"])
-        df["Signal"] = pd.to_numeric(df["Signal"])
-    except Exception:
-        st.error("Concentration and Signal must be numeric.")
-        return
-
-    if len(df) < 2:
-        st.warning("At least 2 points are required.")
-        return
-
-    # Fit linear regression
-    coeffs = np.polyfit(df["Concentration"].values, df["Signal"].values, 1)
-    slope = float(coeffs[0])
-    intercept = float(coeffs[1])
-    y_pred = np.polyval(coeffs, df["Concentration"].values)
-    ss_res = np.sum((df["Signal"].values - y_pred)**2)
-    ss_tot = np.sum((df["Signal"].values - np.mean(df["Signal"].values))**2)
-    r2 = float(1 - ss_res/ss_tot) if ss_tot != 0 else 0.0
-
+    df["Concentration"]=pd.to_numeric(df["Concentration"])
+    df["Signal"]=pd.to_numeric(df["Signal"])
+    coeffs = np.polyfit(df["Concentration"], df["Signal"], 1)
+    slope, intercept = coeffs
+    y_pred = np.polyval(coeffs, df["Concentration"])
+    r2 = float(1 - np.sum((df["Signal"]-y_pred)**2)/np.sum((df["Signal"]-np.mean(df["Signal"]))**2))
     st.session_state.linear_slope = slope
 
     st.metric("Slope", f"{slope:.6f}")
@@ -424,151 +356,98 @@ def linearity_panel():
     st.metric("R²", f"{r2:.4f}")
 
     fig, ax = plt.subplots(figsize=(7,3))
-    ax.scatter(df["Concentration"], df["Signal"], label="Data")
+    ax.scatter(df["Concentration"], df["Signal"])
     xs = np.linspace(df["Concentration"].min(), df["Concentration"].max(), 120)
-    ax.plot(xs, slope*xs + intercept, color="red", label="Fit")
-    ax.set_xlabel(f"{t('concentration')} ({unit})")
-    ax.set_ylabel(t("signal"))
-    ax.legend()
+    ax.plot(xs, slope*xs + intercept, color="red")
+    ax.set_xlabel("Concentration")
+    ax.set_ylabel("Signal")
     st.pyplot(fig)
 
-    # Compute unknown conversions
-    calc_choice = st.radio("Calculate", [f"{t('signal')} → {t('concentration')}", f"{t('concentration')} → {t('signal')}"], key="lin_calc_choice")
-    if calc_choice.startswith(t("signal")):
-        val = st.number_input("Enter signal", format="%.6f", key="lin_in_signal", value=0.0)
-        if st.button(t("compute"), key="lin_compute_signal"):
-            try:
-                if slope == 0:
-                    st.error("Slope is zero, cannot compute concentration.")
-                else:
-                    conc = (val - intercept) / slope
-                    st.success(f"Concentration = {conc:.6f} {unit}")
-            except Exception:
-                st.error("Cannot compute (check inputs).")
-    else:
-        val = st.number_input("Enter concentration", format="%.6f", key="lin_in_conc", value=0.0)
-        if st.button(t("compute"), key="lin_compute_conc"):
-            sig_val = slope*val + intercept
-            st.success(f"Signal = {sig_val:.6f}")
-
-    # Export CSV
     csv_buf = io.StringIO()
     df.to_csv(csv_buf, index=False)
     st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="linearity.csv", mime="text/csv")
 
-    # Export PDF
-    pdf_lines = [f"{t('company')}: {company}"]
-    pdf_lines.append(f"Slope: {slope:.6f}")
-    pdf_lines.append(f"Intercept: {intercept:.6f}")
-    pdf_lines.append(f"R²: {r2:.4f}")
+    pdf_lines = [f"{t('company')}: {company}", f"Slope: {slope:.6f}", f"Intercept: {intercept:.6f}", f"R²: {r2:.4f}"]
     pdf_bytes = generate_pdf_bytes("Linearity Report", pdf_lines, img_bytes=fig_to_bytes(fig), logo_path=LOGO_FILE)
     st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity.pdf", mime="application/pdf")
 
 # -------------------------
-# Helper fig->bytes
-# -------------------------
-def fig_to_bytes(fig):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    buf.seek(0)
-    return buf
-
-# -------------------------
-# S/N Panel
+# S/N panel
 # -------------------------
 def sn_panel():
     st.header(t("sn"))
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_file")
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"])
+    if not uploaded:
+        return
+
     df = None
-
-    if uploaded:
-        name = uploaded.name.lower()
-        if name.endswith(".csv"):
-            try:
-                uploaded.seek(0)
-                df0 = pd.read_csv(uploaded)
-                if df0.shape[1] < 2:
-                    st.error("CSV must have at least two columns")
-                    return
-                df = df0.iloc[:, :2]
-                df.columns = ["Time","Signal"]
-            except Exception as e:
-                st.error(f"CSV read error: {e}")
-                return
-        elif name.endswith((".png",".jpg",".jpeg")):
-            img = Image.open(uploaded)
-            df = extract_xy_from_image_pytesseract(img)
-        elif name.endswith(".pdf") and convert_from_bytes is not None:
-            try:
-                pages = convert_from_bytes(uploaded.read(), dpi=200)
-                img = pages[0]
-                df = extract_xy_from_image_pytesseract(img)
-            except Exception as e:
-                st.error(f"PDF read error: {e}")
-                return
-        else:
-            st.warning("Unsupported format or OCR unavailable.")
-            return
-
-        if df is None or df.empty:
-            st.warning("No data extracted")
-            return
-
-        st.write(df.head())
-        col_min, col_max = st.columns(2)
-        min_val = float(df["Time"].min())
-        max_val = float(df["Time"].max())
-        region = st.slider(t("select_region"), min_val, max_val, (min_val, max_val), key="sn_region")
-
-        # Filter
-        df_sel = df[(df["Time"] >= region[0]) & (df["Time"] <= region[1])].copy()
-        if df_sel.empty:
-            st.warning("No points in selected region")
-            return
-
-        # Compute S/N classic (simplified)
-        sn_classic = df_sel["Signal"].max() / df_sel["Signal"].std() if df_sel["Signal"].std()!=0 else 0
-
-        # Compute USP (simplified: h/sigma)
+    name = uploaded.name.lower()
+    if name.endswith(".csv"):
         try:
-            h = df_sel["Signal"].max() - df_sel["Signal"].min()
-            sigma = df_sel["Signal"].std()
-            sn_usp = h / sigma if sigma != 0 else 0
-        except:
-            sn_usp = 0
+            uploaded.seek(0)
+            df0 = pd.read_csv(uploaded)
+            if df0.shape[1]<2:
+                st.error("CSV must have at least two columns")
+                return
+            df = df0.iloc[:,:2]
+            df.columns=["Time","Signal"]
+        except Exception as e:
+            st.error(f"CSV read error: {e}")
+            return
+    elif name.endswith((".png",".jpg",".jpeg")):
+        img = Image.open(uploaded)
+        df = extract_xy_from_image_pytesseract(img)
+    elif name.endswith(".pdf") and convert_from_bytes is not None:
+        try:
+            pages = convert_from_bytes(uploaded.read(), dpi=200)
+            img = pages[0]
+            df = extract_xy_from_image_pytesseract(img)
+        except Exception as e:
+            st.error(f"PDF read error: {e}")
+            return
+    else:
+        st.warning("Unsupported format")
+        return
 
-        # LOD/LOQ (from slope)
-        slope = st.session_state.linear_slope or 1.0
-        lod = 3*df_sel["Signal"].std()/slope
-        loq = 10*df_sel["Signal"].std()/slope
+    if df is None or df.empty:
+        st.warning("No data extracted")
+        return
 
-        st.metric(t("sn_classic"), f"{sn_classic:.3f}")
-        st.metric(t("sn_usp"), f"{sn_usp:.3f}")
-        st.metric(t("lod"), f"{lod:.6f}")
-        st.metric(t("loq"), f"{loq:.6f}")
+    min_val, max_val = float(df["Time"].min()), float(df["Time"].max())
+    region = st.slider(t("select_region"), min_val, max_val, (min_val,max_val))
+    df_sel = df[(df["Time"]>=region[0]) & (df["Time"]<=region[1])].copy()
+    if df_sel.empty:
+        st.warning("No points in selected region")
+        return
 
-        fig, ax = plt.subplots(figsize=(7,3))
-        ax.plot(df["Time"], df["Signal"], label="Full")
-        ax.plot(df_sel["Time"], df_sel["Signal"], color="red", label="Selected")
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Signal")
-        ax.legend()
-        st.pyplot(fig)
+    sn_classic = df_sel["Signal"].max()/df_sel["Signal"].std() if df_sel["Signal"].std()!=0 else 0
+    h = df_sel["Signal"].max()-df_sel["Signal"].min()
+    sigma = df_sel["Signal"].std()
+    sn_usp = h/sigma if sigma!=0 else 0
+    slope = st.session_state.linear_slope or 1.0
+    lod = 3*sigma/slope
+    loq = 10*sigma/slope
 
-        # Export CSV
-        csv_buf = io.StringIO()
-        df_sel.to_csv(csv_buf, index=False)
-        st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
+    st.metric(t("sn_classic"), f"{sn_classic:.3f}")
+    st.metric(t("sn_usp"), f"{sn_usp:.3f}")
+    st.metric(t("lod"), f"{lod:.6f}")
+    st.metric(t("loq"), f"{loq:.6f}")
 
-        # Export PDF
-        pdf_lines = [
-            f"S/N Classic: {sn_classic:.3f}",
-            f"S/N USP: {sn_usp:.3f}",
-            f"LOD: {lod:.6f}",
-            f"LOQ: {loq:.6f}"
-        ]
-        pdf_bytes = generate_pdf_bytes("S/N Report", pdf_lines, img_bytes=fig_to_bytes(fig), logo_path=LOGO_FILE)
-        st.download_button(t("export_sn_pdf"), pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
+    fig, ax = plt.subplots(figsize=(7,3))
+    ax.plot(df["Time"], df["Signal"], label="Full")
+    ax.plot(df_sel["Time"], df_sel["Signal"], color="red", label="Selected")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Signal")
+    ax.legend()
+    st.pyplot(fig)
+
+    csv_buf = io.StringIO()
+    df_sel.to_csv(csv_buf, index=False)
+    st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
+
+    pdf_lines = [f"S/N Classic: {sn_classic:.3f}", f"S/N USP: {sn_usp:.3f}", f"LOD: {lod:.6f}", f"LOQ: {loq:.6f}"]
+    pdf_bytes = generate_pdf_bytes("S/N Report", pdf_lines, img_bytes=fig_to_bytes(fig), logo_path=LOGO_FILE)
+    st.download_button(t("export_sn_pdf"), pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
 
 # -------------------------
 # Main app
@@ -577,20 +456,16 @@ def main():
     if st.session_state.user is None:
         login_screen()
         return
-    else:
-        st.sidebar.button(t("logout"), on_click=lambda: st.session_state.update({"user":None,"role":None}))
 
-    st.sidebar.title(t("app_title"))
-    section = st.sidebar.radio(t("select_section"), [t("linearity"), t("sn"), t("admin")])
-    if section == t("linearity"):
+    tabs = st.tabs([t("linearity"), t("sn"), t("admin")])
+    with tabs[0]:
         linearity_panel()
-    elif section == t("sn"):
+    with tabs[1]:
         sn_panel()
-    elif section == t("admin"):
-        if st.session_state.role != "admin":
-            st.warning("Admin only")
-        else:
+    with tabs[2]:
+        if st.session_state.role=="admin":
             admin_panel()
+        else:
+            st.warning("Access denied")
 
-if __name__ == "__main__":
-    main()
+main()
