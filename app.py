@@ -1,4 +1,3 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,20 +20,8 @@ try:
 except Exception:
     pytesseract = None
 
-# -------------------------
-# Session defaults
-# -------------------------
-if "lang" not in st.session_state:
-    st.session_state.lang = "FR"
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "role" not in st.session_state:
-    st.session_state.role = None
-if "linear_slope" not in st.session_state:
-    st.session_state.linear_slope = None
-
 # Page config
-st.set_page_config(page_title="LabT", layout="wide")
+st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
 
 USERS_FILE = "users.json"
 LOGO_FILE = "logo_labt.png"
@@ -155,6 +142,18 @@ def t(key):
     return TEXTS.get(lang, TEXTS["FR"]).get(key, key)
 
 # -------------------------
+# Session defaults
+# -------------------------
+if "lang" not in st.session_state:
+    st.session_state.lang = "FR"
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "role" not in st.session_state:
+    st.session_state.role = None
+if "linear_slope" not in st.session_state:
+    st.session_state.linear_slope = None
+
+# -------------------------
 # PDF generator
 # -------------------------
 def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
@@ -194,16 +193,7 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
     return pdf.output(dest="S").encode("latin1")
 
 # -------------------------
-# Helper fig->bytes
-# -------------------------
-def fig_to_bytes(fig):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", bbox_inches="tight")
-    buf.seek(0)
-    return buf
-
-# -------------------------
-# OCR helper (best-effort)
+# OCR helper
 # -------------------------
 def extract_xy_from_image_pytesseract(img: Image.Image):
     if pytesseract is None:
@@ -279,6 +269,7 @@ def login_screen():
         unsafe_allow_html=True,
     )
 
+    # password change outside session
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
@@ -304,6 +295,7 @@ def login_screen():
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
+    st.write(t("add_user"))
     col_left, col_right = st.columns([2,1])
 
     with col_left:
@@ -354,7 +346,7 @@ def admin_panel():
                     st.rerun()
 
 # -------------------------
-# Linearity panel
+# Linearity panel (automatic compute)
 # -------------------------
 def linearity_panel():
     st.header(t("linearity"))
@@ -384,9 +376,8 @@ def linearity_panel():
                 df = None
     else:
         st.caption("Enter concentrations (comma-separated) and signals (comma-separated).")
-        cols = st.columns(2)
-        conc_input = cols[0].text_area("Concentrations (comma separated)", height=120, key="lin_manual_conc")
-        sig_input = cols[1].text_area("Signals (comma separated)", height=120, key="lin_manual_sig")
+        conc_input = st.text_area("Concentrations (comma separated)", height=120, key="lin_manual_conc")
+        sig_input = st.text_area("Signals (comma separated)", height=120, key="lin_manual_sig")
         try:
             concs = [float(c.replace(",",".").strip()) for c in conc_input.split(",") if c.strip()!=""]
             sigs = [float(s.replace(",",".").strip()) for s in sig_input.split(",") if s.strip()!=""]
@@ -398,8 +389,11 @@ def linearity_panel():
     unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="lin_unit")
 
     if df is None or len(df)<2:
-        st.info("Please provide data (CSV or manual) with at least 2 points.")
+        st.info("Please provide at least 2 data points.")
         return
+
+    df["Concentration"] = pd.to_numeric(df["Concentration"])
+    df["Signal"] = pd.to_numeric(df["Signal"])
 
     # Fit linear regression
     coeffs = np.polyfit(df["Concentration"].values, df["Signal"].values, 1)
@@ -425,131 +419,121 @@ def linearity_panel():
     ax.legend()
     st.pyplot(fig)
 
-    # Export CSV
-    csv_buf = io.StringIO()
-    df.to_csv(csv_buf, index=False)
-    st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="linearity.csv", mime="text/csv")
+    # Automatic conversion inputs
+    val_signal = st.number_input("Enter signal", format="%.6f", key="lin_in_signal", value=0.0)
+    if slope != 0:
+        conc_calc = (val_signal - intercept) / slope
+        st.success(f"Concentration = {conc_calc:.6f} {unit}")
+
+    val_conc = st.number_input("Enter concentration", format="%.6f", key="lin_in_conc", value=0.0)
+    sig_calc = slope * val_conc + intercept
+    st.success(f"Predicted signal = {sig_calc:.6f}")
+
+    # Formulas
+    with st.expander(t("formulas"), expanded=False):
+        st.markdown(r"""
+        **Linearity:** \( y = slope \cdot X + intercept \)  
+        **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
+        **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
+        """)
 
     # Export PDF
-    if st.button(t("generate_pdf")):
-        if not company.strip():
+    if st.button(t("generate_pdf"), key="lin_pdf"):
+        if not company or company.strip()=="":
             st.warning(t("company_missing"))
         else:
-            pdf_lines = [f"{t('company')}: {company}"]
-            pdf_lines.append(f"Slope: {slope:.6f}")
-            pdf_lines.append(f"Intercept: {intercept:.6f}")
-            pdf_lines.append(f"R²: {r2:.4f}")
-            pdf_bytes = generate_pdf_bytes("Linearity Report", pdf_lines, img_bytes=fig_to_bytes(fig), logo_path=LOGO_FILE)
-            st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity.pdf", mime="application/pdf")
+            buf = io.BytesIO()
+            fig.savefig(buf, format="png", bbox_inches="tight")
+            buf.seek(0)
+            lines = [
+                f"Company: {company or 'N/A'}",
+                f"Slope: {slope:.6f}",
+                f"Intercept: {intercept:.6f}",
+                f"R²: {r2:.4f}"
+            ]
+            pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=LOGO_FILE)
+            st.download_button(t("download_pdf"), data=pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
 
 # -------------------------
-# S/N Panel
+# S/N panel
 # -------------------------
 def sn_panel():
     st.header(t("sn"))
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_file")
-    if uploaded is None:
-        return
-
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_upload")
     df = None
-    name = uploaded.name.lower()
-    if name.endswith(".csv"):
-        try:
-            uploaded.seek(0)
-            df0 = pd.read_csv(uploaded)
-            df = df0.iloc[:, :2].copy()
-            df.columns = ["Time","Signal"]
-        except:
-            st.error("CSV read error")
-            return
-    elif name.endswith((".png",".jpg",".jpeg")):
-        img = Image.open(uploaded)
-        df = extract_xy_from_image_pytesseract(img)
-    elif name.endswith(".pdf") and convert_from_bytes is not None:
-        try:
-            pages = convert_from_bytes(uploaded.read(), dpi=200)
-            img = pages[0]
+
+    if uploaded:
+        if uploaded.type == "text/csv" or uploaded.name.endswith(".csv"):
+            df = pd.read_csv(uploaded)
+            if df.shape[1]>=2:
+                df = df.iloc[:, :2].copy()
+                df.columns = ["Time","Signal"]
+        elif uploaded.name.endswith((".png",".jpg",".jpeg")):
+            img = Image.open(uploaded)
             df = extract_xy_from_image_pytesseract(img)
-        except:
-            st.error("PDF read error")
-            return
-    else:
-        st.warning("Unsupported format or OCR unavailable.")
-        return
-
+        elif uploaded.name.endswith(".pdf") and convert_from_bytes is not None:
+            try:
+                images = convert_from_bytes(uploaded.read())
+                img = images[0]
+                df = extract_xy_from_image_pytesseract(img)
+            except:
+                st.warning("PDF not convertible")
     if df is None or df.empty:
-        st.warning("No data extracted")
+        st.info("Upload a valid chromatogram file to compute S/N")
         return
 
-    st.write(df.head())
-    col_min, col_max = st.columns(2)
-    min_val = float(df["Time"].min())
-    max_val = float(df["Time"].max())
-    region = st.slider(t("select_region"), min_val, max_val, (min_val, max_val), key="sn_region")
-
-    # Filter
-    df_sel = df[(df["Time"] >= region[0]) & (df["Time"] <= region[1])].copy()
-    if df_sel.empty:
-        st.warning("No points in selected region")
-        return
-
-    # Compute S/N classic and USP
-    sn_classic = df_sel["Signal"].max() / df_sel["Signal"].std() if df_sel["Signal"].std()!=0 else 0
-    h = df_sel["Signal"].max() - df_sel["Signal"].min()
-    sigma = df_sel["Signal"].std()
-    sn_usp = h / sigma if sigma!=0 else 0
-    slope = st.session_state.linear_slope or 1.0
-    lod = 3*df_sel["Signal"].std()/slope
-    loq = 10*df_sel["Signal"].std()/slope
-
-    st.metric(t("sn_classic"), f"{sn_classic:.3f}")
-    st.metric(t("sn_usp"), f"{sn_usp:.3f}")
-    st.metric(t("lod"), f"{lod:.6f}")
-    st.metric(t("loq"), f"{loq:.6f}")
-
-    fig, ax = plt.subplots(figsize=(7,3))
-    ax.plot(df["Time"], df["Signal"], label="Full")
-    ax.plot(df_sel["Time"], df_sel["Signal"], color="red", label="Selected")
+    st.subheader("Chromatogram")
+    fig, ax = plt.subplots(figsize=(8,3))
+    ax.plot(df.iloc[:,0], df.iloc[:,1])
     ax.set_xlabel("Time")
     ax.set_ylabel("Signal")
-    ax.legend()
     st.pyplot(fig)
 
-    # Export CSV
-    csv_buf = io.StringIO()
-    df_sel.to_csv(csv_buf, index=False)
-    st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
+    # Select region
+    min_x, max_x = float(df.iloc[:,0].min()), float(df.iloc[:,0].max())
+    region = st.slider(t("select_region"), min_value=min_x, max_value=max_x, value=(min_x,max_x), step=(max_x-min_x)/1000.0)
+    df_region = df[(df.iloc[:,0]>=region[0]) & (df.iloc[:,0]<=region[1])]
 
-    # Export PDF
-    if st.button(t("export_sn_pdf")):
-        pdf_lines = [
-            f"S/N Classic: {sn_classic:.3f}",
-            f"S/N USP: {sn_usp:.3f}",
-            f"LOD: {lod:.6f}",
-            f"LOQ: {loq:.6f}"
-        ]
-        pdf_bytes = generate_pdf_bytes("S/N Report", pdf_lines, img_bytes=fig_to_bytes(fig), logo_path=LOGO_FILE)
-        st.download_button(t("download_pdf"), pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
+    if not df_region.empty:
+        sn_classic = df_region["Signal"].max() / df_region["Signal"].std() if df_region["Signal"].std()!=0 else 0
+        st.metric(t("sn_classic"), f"{sn_classic:.3f}")
+        slope = st.session_state.linear_slope or 1
+        lod = 3.3 * df_region["Signal"].std()/slope
+        loq = 10 * df_region["Signal"].std()/slope
+        st.metric(t("lod"), f"{lod:.6f}")
+        st.metric(t("loq"), f"{loq:.6f}")
+
+    # Export CSV
+    csv_buf = df_region.to_csv(index=False).encode("utf-8")
+    st.download_button(t("download_csv"), data=csv_buf, file_name="sn_region.csv", mime="text/csv")
+
+    # Export PDF with chromatogram
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    lines = [f"S/N Classic: {sn_classic:.3f}", f"LOD: {lod:.6f}", f"LOQ: {loq:.6f}"]
+    pdf_bytes = generate_pdf_bytes("S/N report", lines, img_bytes=buf, logo_path=LOGO_FILE)
+    st.download_button(t("export_sn_pdf"), data=pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
 
 # -------------------------
-# Main app
+# Main
 # -------------------------
 def main():
     if st.session_state.user is None:
         login_screen()
         return
+    st.sidebar.button(t("logout"), on_click=lambda: st.session_state.update({"user":None,"role":None}), key="logout_btn")
+    st.sidebar.write(f"User: **{st.session_state.user}** (Role: {st.session_state.role})")
 
-    tabs = st.tabs([t("linearity"), t("sn"), t("admin")])
+    tabs = st.tabs([t("linearity"), t("sn"), t("admin") if st.session_state.role=="admin" else ""])
 
     with tabs[0]:
         linearity_panel()
     with tabs[1]:
         sn_panel()
-    with tabs[2]:
-        if st.session_state.role=="admin":
+    if st.session_state.role=="admin":
+        with tabs[2]:
             admin_panel()
-        else:
-            st.warning("Admin only")
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
