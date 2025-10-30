@@ -199,7 +199,6 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
                 pdf.ln(4)
                 pdf.image(tmpname, x=20, w=170)
             else:
-                # If a path was passed
                 if isinstance(img_bytes, str) and os.path.exists(img_bytes):
                     pdf.ln(4)
                     pdf.image(img_bytes, x=20, w=170)
@@ -211,10 +210,6 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
 # OCR helper (best-effort)
 # -------------------------
 def extract_xy_from_image_pytesseract(img: Image.Image):
-    """
-    Try to extract numeric X,Y pairs from image text via pytesseract.
-    Returns DataFrame with columns X,Y or empty DF if not possible.
-    """
     if pytesseract is None:
         return pd.DataFrame(columns=["X","Y"])
     try:
@@ -225,7 +220,6 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
     for line in text.splitlines():
         if not line.strip():
             continue
-        # try separators
         for sep in [",", ";", "\t"]:
             if sep in line:
                 parts = [p.strip() for p in line.split(sep) if p.strip() != ""]
@@ -256,7 +250,6 @@ def header_area():
     with cols[0]:
         st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
     with cols[1]:
-        # upload logo (optional) and save to LOGO_FILE
         upl = st.file_uploader(t("upload_logo"), type=["png","jpg","jpeg"], key="upload_logo")
         if upl is not None:
             try:
@@ -305,7 +298,6 @@ def login_screen():
         unsafe_allow_html=True,
     )
 
-    # password change outside session
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
@@ -367,7 +359,6 @@ def admin_panel():
             if not new_user.strip() or not new_pass.strip():
                 st.warning("Enter username and password")
             else:
-                # case-insensitive check
                 if find_user_key(new_user) is not None:
                     st.warning("User exists")
                 else:
@@ -391,7 +382,6 @@ def linearity_panel():
         if uploaded:
             try:
                 uploaded.seek(0)
-                # try common separators ; or ,
                 try:
                     df0 = pd.read_csv(uploaded)
                 except Exception:
@@ -447,7 +437,7 @@ def linearity_panel():
         st.pyplot(fig)
 
         # -------------------------
-        # Single unknown calculation (automatic, real-time)
+        # Single unknown input and real-time computation
         # -------------------------
         calc_choice = st.radio(
             "Calculate", 
@@ -456,32 +446,31 @@ def linearity_panel():
         )
 
         unknown_label = "Enter value"
-        if "lin_unknown_val" not in st.session_state:
-            st.session_state.lin_unknown_val = 0.0
-        val = st.number_input(
-            unknown_label, 
-            format="%.6f", 
-            key="lin_unknown_val",
-            value=st.session_state.lin_unknown_val
-        )
+        cols_unknown = st.columns([1,1])
+        with cols_unknown[0]:
+            if "lin_unknown_val" not in st.session_state:
+                st.session_state.lin_unknown_val = 0.0
+            st.session_state.lin_unknown_val = st.number_input(
+                unknown_label,
+                format="%.6f",
+                value=st.session_state.lin_unknown_val,
+                key="lin_unknown_val"
+            )
 
-        # automatically compute and show result immediately
-        try:
-            if calc_choice.startswith(t("signal")):
-                # signal -> conc
-                if slope == 0:
-                    st.error("Slope is zero, cannot compute concentration.")
+        with cols_unknown[1]:
+            try:
+                val = float(st.session_state.lin_unknown_val)
+                if calc_choice.startswith(t("signal")):
+                    if slope != 0:
+                        conc = (val - intercept) / slope
+                        st.success(f"Concentration = {conc:.6f} {unit}")
+                    else:
+                        st.error("Slope is zero, cannot compute concentration.")
                 else:
-                    conc = (float(val) - intercept) / slope
-                    st.success(f"Concentration = {conc:.6f} {unit}")
-                    st.session_state.lin_unknown_result = conc
-            else:
-                # conc -> signal
-                sigp = slope * float(val) + intercept
-                st.success(f"Signal = {sigp:.6f}")
-                st.session_state.lin_unknown_result = sigp
-        except Exception as e:
-            st.error(f"Compute error: {e}")
+                    sigp = slope * val + intercept
+                    st.success(f"Signal = {sigp:.6f}")
+            except Exception as e:
+                st.error(f"Compute error: {e}")
 
 # -------------------------
 # Main app
