@@ -1,8 +1,8 @@
-streamlit>=1.24
+streamlit>=1.20.0
 pandas
 numpy
 matplotlib
+Pillow
 fpdf
-pillow
-pytesseract
-pdf2image
+pytesseract  # optional - only if you want OCR (install tesseract engine too)
+pdf2image    # optional - requires poppler for PDF -> image
