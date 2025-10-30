@@ -22,11 +22,11 @@ try:
 except Exception:
     pytesseract = None
 
-# Page config (no sidebar)
+# Page config
 st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
 
 USERS_FILE = "users.json"
-LOGO_FILE = "logo_labt.png"  # optional saved logo path
+LOGO_FILE = "logo_labt.png"
 
 # -------------------------
 # Users helpers
@@ -53,7 +53,6 @@ def save_users(users):
 
 USERS = load_users()
 
-# make login case-insensitive: create a helper to find user key by case-insensitive match
 def find_user_key(username):
     if username is None:
         return None
@@ -315,7 +314,7 @@ def login_screen():
                     st.success(f"Password updated for {found}")
 
 # -------------------------
-# Admin panel (users dropdown)
+# Admin panel (users)
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
@@ -368,7 +367,7 @@ def admin_panel():
                     st.experimental_rerun()
 
 # -------------------------
-# Linearity panel (automatic compute, single unknown field)
+# Linearity panel
 # -------------------------
 def linearity_panel():
     st.header(t("linearity"))
@@ -420,57 +419,48 @@ def linearity_panel():
                 st.error(f"Error parsing input: {e}")
 
     if df is not None:
-        st.session_state.linear_slope, intercept = np.polyfit(df["Concentration"], df["Signal"], 1)
-        slope = st.session_state.linear_slope
+        slope, intercept = np.polyfit(df["Concentration"], df["Signal"], 1)
+        st.session_state.linear_slope = slope
         unit = "a.u."
 
-        # Show regression line
         x = np.array(df["Concentration"])
         y = np.array(df["Signal"])
         y_fit = slope*x + intercept
         fig, ax = plt.subplots()
-        ax.scatter(x,y,label="Data")
+        ax.scatter(x, y, label="Data")
         ax.plot(x, y_fit, color="red", label="Fit")
         ax.set_xlabel("Concentration")
         ax.set_ylabel("Signal")
         ax.legend()
         st.pyplot(fig)
 
-        # -------------------------
-        # Single unknown input and real-time computation
-        # -------------------------
         calc_choice = st.radio(
             "Calculate", 
             [f"{t('signal')} → {t('concentration')}", f"{t('concentration')} → {t('signal')}"], 
             key="lin_calc_choice"
         )
 
-        unknown_label = "Enter value"
-        cols_unknown = st.columns([1,1])
-        with cols_unknown[0]:
-            if "lin_unknown_val" not in st.session_state:
-                st.session_state.lin_unknown_val = 0.0
-            st.session_state.lin_unknown_val = st.number_input(
-                unknown_label,
-                format="%.6f",
-                value=st.session_state.lin_unknown_val,
-                key="lin_unknown_val"
-            )
+        val = st.number_input(
+            "Enter value", 
+            format="%.6f", 
+            key="lin_unknown_val",
+            value=st.session_state.get("lin_unknown_val", 0.0)
+        )
 
-        with cols_unknown[1]:
-            try:
-                val = float(st.session_state.lin_unknown_val)
-                if calc_choice.startswith(t("signal")):
-                    if slope != 0:
-                        conc = (val - intercept) / slope
-                        st.success(f"Concentration = {conc:.6f} {unit}")
-                    else:
-                        st.error("Slope is zero, cannot compute concentration.")
+        try:
+            if calc_choice.startswith(t("signal")):
+                if slope == 0:
+                    st.error("Slope is zero, cannot compute concentration.")
                 else:
-                    sigp = slope * val + intercept
-                    st.success(f"Signal = {sigp:.6f}")
-            except Exception as e:
-                st.error(f"Compute error: {e}")
+                    conc = (float(val) - intercept) / slope
+                    st.success(f"Concentration = {conc:.6f} {unit}")
+                    st.session_state.lin_unknown_result = conc
+            else:
+                sigp = slope * float(val) + intercept
+                st.success(f"Signal = {sigp:.6f}")
+                st.session_state.lin_unknown_result = sigp
+        except Exception as e:
+            st.error(f"Compute error: {e}")
 
 # -------------------------
 # Main app
@@ -479,10 +469,19 @@ def main():
     if st.session_state.user is None:
         login_screen()
         return
-    st.sidebar.title(f"User: {st.session_state.user}")
-    if st.session_state.role == "admin":
-        st.sidebar.button(t("admin"), on_click=admin_panel)
-    st.sidebar.button(t("linearity"), on_click=linearity_panel)
-    st.sidebar.button(t("logout"), on_click=lambda: st.session_state.update({"user":None,"role":None}))
+
+    header_area()
+    st.write(f"Logged in as: **{st.session_state.user}** ({st.session_state.role})")
+
+    section = st.selectbox(t("select_section"), [t("linearity"), t("sn"), t("admin")])
+    if section == t("linearity"):
+        linearity_panel()
+    elif section == t("sn"):
+        st.info("S/N panel remains as in your original code (not modified).")
+    elif section == t("admin") and st.session_state.role == "admin":
+        admin_panel()
+
+    if st.button(t("logout")):
+        st.session_state.update({"user":None,"role":None})
 
 main()
