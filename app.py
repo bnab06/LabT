@@ -8,7 +8,6 @@ from PIL import Image
 import io
 import json
 import tempfile
-import os
 from datetime import datetime
 
 # Optional features
@@ -22,11 +21,11 @@ try:
 except Exception:
     pytesseract = None
 
-# Page config (no sidebar)
+# Page config
 st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
 
 USERS_FILE = "users.json"
-LOGO_FILE = "logo_labt.png"  # optional saved logo path
+LOGO_FILE = "logo_labt.png"
 
 # -------------------------
 # Users helpers
@@ -52,15 +51,6 @@ def save_users(users):
         json.dump(users, f, indent=4, ensure_ascii=False)
 
 USERS = load_users()
-
-# make login case-insensitive: create a helper to find user key by case-insensitive match
-def find_user_key(username):
-    if username is None:
-        return None
-    for u in USERS.keys():
-        if u.lower() == username.strip().lower():
-            return u
-    return None
 
 # -------------------------
 # Translations
@@ -105,7 +95,8 @@ TEXTS = {
         "compute":"Compute",
         "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport.",
         "select_section":"Section",
-        "upload_logo":"Uploader un logo (optionnel)"
+        "manual_sn":"Saisie manuelle S/N",
+        "slope_zero_error":"Slope is zero, cannot compute concentration."
     },
     "EN": {
         "app_title":"LabT",
@@ -146,7 +137,8 @@ TEXTS = {
         "compute":"Compute",
         "company_missing":"Please enter company name before generating the report.",
         "select_section":"Section",
-        "upload_logo":"Upload logo (optional)"
+        "manual_sn":"Manual S/N input",
+        "slope_zero_error":"Slope is zero, cannot compute concentration."
     }
 }
 
@@ -172,10 +164,10 @@ if "linear_slope" not in st.session_state:
 def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
     pdf = FPDF()
     pdf.add_page()
-    if logo_path and os.path.exists(logo_path):
+    if logo_path:
         try:
-            pdf.image(logo_path, x=10, y=8, w=25)
-            pdf.set_xy(40, 10)
+            pdf.image(logo_path, x=10, y=8, w=20)
+            pdf.set_xy(35, 10)
         except Exception:
             pdf.set_xy(10, 10)
     pdf.set_font("Arial", "B", 14)
@@ -199,10 +191,8 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
                 pdf.ln(4)
                 pdf.image(tmpname, x=20, w=170)
             else:
-                # If a path was passed
-                if isinstance(img_bytes, str) and os.path.exists(img_bytes):
-                    pdf.ln(4)
-                    pdf.image(img_bytes, x=20, w=170)
+                pdf.ln(4)
+                pdf.image(img_bytes, x=20, w=170)
         except Exception:
             pass
     return pdf.output(dest="S").encode("latin1")
@@ -211,10 +201,6 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
 # OCR helper (best-effort)
 # -------------------------
 def extract_xy_from_image_pytesseract(img: Image.Image):
-    """
-    Try to extract numeric X,Y pairs from image text via pytesseract.
-    Returns DataFrame with columns X,Y or empty DF if not possible.
-    """
     if pytesseract is None:
         return pd.DataFrame(columns=["X","Y"])
     try:
@@ -225,8 +211,7 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
     for line in text.splitlines():
         if not line.strip():
             continue
-        # try separators
-        for sep in [",", ";", "\t"]:
+        for sep in [",",";","\t"]:
             if sep in line:
                 parts = [p.strip() for p in line.split(sep) if p.strip() != ""]
                 if len(parts) >= 2:
@@ -235,7 +220,7 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
                         y = float(parts[1].replace(",","."))
                         rows.append([x,y])
                         break
-                    except Exception:
+                    except:
                         pass
         else:
             parts = line.split()
@@ -244,35 +229,15 @@ def extract_xy_from_image_pytesseract(img: Image.Image):
                     x = float(parts[0].replace(",","."))
                     y = float(parts[1].replace(",","."))
                     rows.append([x,y])
-                except Exception:
+                except:
                     pass
     return pd.DataFrame(rows, columns=["X","Y"])
-
-# -------------------------
-# Header (title + logo upload)
-# -------------------------
-def header_area():
-    cols = st.columns([3,1])
-    with cols[0]:
-        st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
-    with cols[1]:
-        # upload logo (optional) and save to LOGO_FILE
-        upl = st.file_uploader(t("upload_logo"), type=["png","jpg","jpeg"], key="upload_logo")
-        if upl is not None:
-            try:
-                upl.seek(0)
-                data = upl.read()
-                with open(LOGO_FILE, "wb") as f:
-                    f.write(data)
-                st.success("Logo saved")
-            except Exception as e:
-                st.warning(f"Logo save error: {e}")
 
 # -------------------------
 # Login screen
 # -------------------------
 def login_screen():
-    header_area()
+    st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
     st.write("")
     lang = st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1, key="login_lang")
     st.session_state.lang = lang
@@ -290,7 +255,11 @@ def login_screen():
         if not uname:
             st.error(t("invalid"))
             return
-        matched = find_user_key(uname)
+        matched = None
+        for u in USERS:
+            if u.lower() == uname.lower():
+                matched = u
+                break
         if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
             st.session_state.role = USERS[matched].get("role","user")
@@ -314,7 +283,11 @@ def login_screen():
             if not u_name.strip() or not u_pwd:
                 st.warning("Enter username and new password")
             else:
-                found = find_user_key(u_name)
+                found = None
+                for u in USERS:
+                    if u.lower() == u_name.strip().lower():
+                        found = u
+                        break
                 if not found:
                     st.warning("User not found")
                 else:
@@ -323,11 +296,13 @@ def login_screen():
                     st.success(f"Password updated for {found}")
 
 # -------------------------
-# Admin panel (users dropdown)
+# Admin panel
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
+    st.write(t("add_user"))
     col_left, col_right = st.columns([2,1])
+
     with col_left:
         st.subheader("Existing users")
         users_list = list(USERS.keys())
@@ -346,7 +321,7 @@ def admin_panel():
                         USERS[sel]["role"] = new_role
                         save_users(USERS)
                         st.success(f"Updated {sel}")
-                        st.experimental_rerun()
+                        st.rerun()
             if st.button("Delete selected user"):
                 if sel.lower() == "admin":
                     st.warning("Cannot delete admin")
@@ -354,7 +329,7 @@ def admin_panel():
                     USERS.pop(sel)
                     save_users(USERS)
                     st.success(f"{sel} deleted")
-                    st.experimental_rerun()
+                    st.rerun()
 
     with col_right:
         st.subheader(t("add_user"))
@@ -367,17 +342,16 @@ def admin_panel():
             if not new_user.strip() or not new_pass.strip():
                 st.warning("Enter username and password")
             else:
-                # case-insensitive check
-                if find_user_key(new_user) is not None:
+                if any(u.lower() == new_user.strip().lower() for u in USERS):
                     st.warning("User exists")
                 else:
                     USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
                     save_users(USERS)
                     st.success(f"User {new_user.strip()} added")
-                    st.experimental_rerun()
+                    st.rerun()
 
 # -------------------------
-# Linearity panel (automatic compute, single unknown field)
+# Linearity panel with real-time unknown
 # -------------------------
 def linearity_panel():
     st.header(t("linearity"))
@@ -387,16 +361,11 @@ def linearity_panel():
     df = None
 
     if mode == t("input_csv"):
-        uploaded = st.file_uploader(t("input_csv"), type=["csv"], key="lin_csv")
+        uploaded = st.file_uploader("Upload CSV with two columns (concentration, signal)", type=["csv"], key="lin_csv")
         if uploaded:
             try:
                 uploaded.seek(0)
-                # try common separators ; or ,
-                try:
-                    df0 = pd.read_csv(uploaded)
-                except Exception:
-                    uploaded.seek(0)
-                    df0 = pd.read_csv(uploaded, sep=';', engine='python')
+                df0 = pd.read_csv(uploaded)
                 cols_low = [c.lower() for c in df0.columns]
                 if "concentration" in cols_low and "signal" in cols_low:
                     df = df0.rename(columns={df0.columns[cols_low.index("concentration")]: "Concentration",
@@ -434,7 +403,6 @@ def linearity_panel():
         st.info("Please provide data (CSV or manual).")
         return
 
-    # ensure numeric and sorted
     try:
         df["Concentration"] = pd.to_numeric(df["Concentration"])
         df["Signal"] = pd.to_numeric(df["Signal"])
@@ -455,7 +423,6 @@ def linearity_panel():
     ss_tot = np.sum((df["Signal"].values - np.mean(df["Signal"].values))**2)
     r2 = float(1 - ss_res/ss_tot) if ss_tot != 0 else 0.0
 
-    # store slope for S/N conversions
     st.session_state.linear_slope = slope
 
     st.metric("Slope", f"{slope:.6f}")
@@ -471,349 +438,121 @@ def linearity_panel():
     ax.legend()
     st.pyplot(fig)
 
-    # Single automatic unknown field (interchangeable)
-    calc_choice = st.radio("Calculate", [f"{t('signal')} → {t('concentration')}", f"{t('concentration')} → {t('signal')}"], key="lin_calc_choice")
-    unknown_label = "Enter value"
-    val = st.number_input(unknown_label, format="%.6f", key="lin_unknown", value=0.0)
-
-    # automatically compute and show result (no button)
-    try:
-        if calc_choice.startswith(t("signal")):
-            # signal -> conc
-            if slope == 0:
-                st.error("Slope is zero, cannot compute concentration.")
-            else:
-                conc = (float(val) - intercept) / slope
-                st.success(f"Concentration = {conc:.6f} {unit}")
+    # Unknown conversion real-time
+    col1, col2 = st.columns(2)
+    with col1:
+        unknown_signal = st.number_input(f"Enter unknown signal ({t('signal')})", format="%.6f", key="unknown_signal")
+        if slope != 0:
+            conc_unknown = (unknown_signal - intercept)/slope
+            st.success(f"Predicted concentration = {conc_unknown:.6f} {unit}")
         else:
-            # conc -> signal
-            sigp = slope * float(val) + intercept
-            st.success(f"Signal = {sigp:.6f}")
-    except Exception as e:
-        st.error(f"Compute error: {e}")
+            st.warning(t("slope_zero_error"))
+    with col2:
+        unknown_conc = st.number_input(f"Enter unknown concentration ({t('concentration')})", format="%.6f", key="unknown_conc")
+        sig_unknown = slope*unknown_conc + intercept
+        st.info(f"Predicted signal = {sig_unknown:.6f}")
 
-    # formulas
-    with st.expander(t("formulas"), expanded=False):
-        st.markdown(r"""
-        **Linearity:** \( y = slope \cdot X + intercept \)  
-        **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
-        **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
-        """)
-
-    # Export CSV & PDF (require company)
-    csv_buf = io.StringIO()
-    df.to_csv(csv_buf, index=False)
-    st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="linearity.csv", mime="text/csv")
-
-    if st.button(t("generate_pdf"), key="lin_pdf"):
-        if not company or company.strip()=="":
+    # Export PDF
+    if st.button(t("generate_pdf")):
+        if not company.strip():
             st.warning(t("company_missing"))
         else:
             buf = io.BytesIO()
-            fig.savefig(buf, format="png", bbox_inches="tight")
+            fig.savefig(buf, format="png")
             buf.seek(0)
-            lines = [
-                f"Company: {company or 'N/A'}",
-                f"User: {st.session_state.user or 'Unknown'}",
-                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            pdf_bytes = generate_pdf_bytes("Linearity Report", [
+                f"Company: {company}",
                 f"Slope: {slope:.6f}",
                 f"Intercept: {intercept:.6f}",
-                f"R²: {r2:.6f}"
-            ]
-            logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
-            pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=logo_path)
-            st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
+                f"R²: {r2:.4f}"
+            ], img_bytes=buf, logo_path=LOGO_FILE)
+            st.download_button(t("download_pdf"), pdf_bytes, file_name=f"Linearity_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
 
 # -------------------------
-# S/N panel (full) with sliders on x-axis and manual entry (automatic)
+# S/N panel (classic, USP, manual, image OCR)
 # -------------------------
 def sn_panel_full():
     st.header(t("sn"))
-    st.write(t("digitize_info"))
+    mode = st.radio("Mode", ["CSV/Image", "Manual"], key="sn_mode")
 
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_uploader")
-    if uploaded is None:
-        st.info("Upload a file or use manual S/N input.")
-        sn_manual_mode = True
-    else:
-        sn_manual_mode = False
-
-    # Manual input mode (H/h) — automatic display of results
-    if sn_manual_mode:
-        st.subheader("Manual S/N calculation")
-        H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
-        h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
-        slope_input = st.number_input("Slope (optional, for conc. conversion)", value=float(st.session_state.linear_slope or 0.0), format="%.6f", key="manual_slope")
-        unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_manual")
-        # automatic display without any button
-        sn_classic = H / h if h != 0 else float("nan")
-        sn_usp = 2 * H / h if h != 0 else float("nan")
-        st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
-        st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
-        if slope_input:
-            try:
-                lod = 3.3 * h / slope_input
-                loq = 10 * h / slope_input
-                st.write(f"{t('lod')} ({unit}): {lod:.6f}")
-                st.write(f"{t('loq')} ({unit}): {loq:.6f}")
-            except Exception:
-                pass
-        return
-
-    # If file uploaded, try to parse robustly
-    name = uploaded.name.lower()
     df = None
-
-    if name.endswith(".csv"):
-        try:
-            uploaded.seek(0)
-            # try with pandas autodetect
-            try:
-                df0 = pd.read_csv(uploaded)
-            except Exception:
-                uploaded.seek(0)
-                df0 = pd.read_csv(uploaded, sep=';', engine='python')
-            if df0.shape[1] < 2:
-                st.error("CSV must have at least two columns")
-                return
-            # try to detect columns name
-            cols_low = [c.lower() for c in df0.columns]
-            if "time" in cols_low and "signal" in cols_low:
-                idx_t = cols_low.index("time")
-                idx_s = cols_low.index("signal")
-                df = pd.DataFrame({"X": pd.to_numeric(df0.iloc[:, idx_t], errors="coerce"),
-                                   "Y": pd.to_numeric(df0.iloc[:, idx_s], errors="coerce")})
-            else:
-                # fallback to first two columns
-                df = df0.iloc[:, :2].copy()
-                df.columns = ["X", "Y"]
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-            st.subheader("Raw data preview")
-            st.dataframe(df.head(50))
-        except Exception as e:
-            st.error(f"CSV read error: {e}")
-            return
-
-    elif name.endswith((".png",".jpg",".jpeg")):
-        try:
-            uploaded.seek(0)
-            orig_image = Image.open(uploaded).convert("RGB")
-            st.subheader("Original image (as uploaded)")
-            st.image(orig_image, use_column_width=True)
-            df_digit = extract_xy_from_image_pytesseract(orig_image)
-            if not df_digit.empty:
-                df_digit = df_digit.sort_values("X")
-                df = df_digit.rename(columns={"X":"X","Y":"Y"})
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                st.success("Digitized numeric data from image (OCR).")
-            else:
-                arr = np.array(orig_image.convert("L"))
-                signal = arr.max(axis=0).astype(float)
-                x_axis = np.arange(len(signal))
-                df = pd.DataFrame({"X": x_axis, "Y": signal})
-                st.info("No numeric table found in image. Using vertical max-projection.")
-        except Exception as e:
-            st.error(f"Image error: {e}")
-            return
-
-    elif name.endswith(".pdf"):
-        # if pdf2image not available, allow download original and warn
-        if convert_from_bytes is None:
-            st.warning("PDF digitizing requires pdf2image + poppler. Cannot process PDF here.")
-            uploaded.seek(0)
-            st.download_button(t("download_original_pdf"), uploaded.read(), file_name=uploaded.name)
-            return
-        try:
-            uploaded.seek(0)
-            pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
-            if not pages:
-                st.error("No pages extracted from PDF")
-                return
-            orig_image = pages[0]
-            st.subheader("Original PDF page (as image)")
-            st.image(orig_image, use_column_width=True)
-            df_digit = extract_xy_from_image_pytesseract(orig_image)
-            if not df_digit.empty:
-                df_digit = df_digit.sort_values("X")
-                df = df_digit.rename(columns={"X":"X","Y":"Y"})
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                st.success("Digitized numeric data from PDF (OCR).")
-            else:
-                arr = np.array(orig_image.convert("L"))
-                signal = arr.max(axis=0).astype(float)
-                x_axis = np.arange(len(signal))
-                df = pd.DataFrame({"X": x_axis, "Y": signal})
-                st.info("No numeric table found in PDF page. Using vertical max-projection.")
-        except Exception as e:
-            st.error(f"PDF error: {e}")
-            return
+    if mode=="CSV/Image":
+        uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_upload")
+        if uploaded:
+            ext = uploaded.name.split(".")[-1].lower()
+            if ext=="csv":
+                try:
+                    df0 = pd.read_csv(uploaded)
+                    if len(df0.columns) >= 2:
+                        df = df0.iloc[:, :2].copy()
+                        df.columns = ["Time","Signal"]
+                except Exception as e:
+                    st.error(f"CSV error: {e}")
+            elif ext in ["png","jpg","jpeg"]:
+                img = Image.open(uploaded)
+                if pytesseract:
+                    df = extract_xy_from_image_pytesseract(img)
+                else:
+                    st.warning("OCR not available")
+            elif ext=="pdf":
+                if convert_from_bytes:
+                    try:
+                        pages = convert_from_bytes(uploaded.read())
+                        img = pages[0]
+                        if pytesseract:
+                            df = extract_xy_from_image_pytesseract(img)
+                        else:
+                            st.warning("OCR not available")
+                    except Exception as e:
+                        st.error(f"PDF processing error: {e}")
+                else:
+                    st.warning("Poppler/pdf2image not installed")
     else:
-        st.error("Unsupported file type")
-        return
+        t_input = st.text_area("Time / Retention")
+        s_input = st.text_area("Signal")
+        if st.button("Load manual S/N data"):
+            try:
+                times = [float(v.replace(",",".").strip()) for v in t_input.split(",") if v.strip()!=""]
+                signals = [float(v.replace(",",".").strip()) for v in s_input.split(",") if v.strip()!=""]
+                df = pd.DataFrame({"Time":times,"Signal":signals})
+            except:
+                st.error("Parse error")
 
     if df is None or df.empty:
-        st.warning("No valid signal detected.")
+        st.info("Provide data to compute S/N")
         return
 
-    # convert to numeric and sort
-    try:
-        df["X"] = pd.to_numeric(df["X"], errors="coerce")
-        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-        df = df.dropna().sort_values("X").reset_index(drop=True)
-        x_axis = df["X"].values
-        signal = df["Y"].values
-    except Exception as e:
-        st.error(f"Data processing error: {e}")
-        return
-
-    # Region selection: handle case x_min == x_max
-    st.subheader(t("select_region"))
-    x_min = float(np.min(x_axis))
-    x_max = float(np.max(x_axis))
-    if x_max == x_min:
-        # degenerate case: create indices for slider
-        x_min = 0.0
-        x_max = float(len(x_axis)-1) if len(x_axis)>1 else 1.0
-        default_start = x_min
-        default_end = x_max
-        step = 1.0
-        # map X for display, but use integer indices
-        start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
-                              value=(default_start, default_end), step=step, key="sn_region_slider")
-        # select by indices
-        idx_start = int(max(0, round(start)))
-        idx_end = int(min(len(df)-1, round(end)))
-        region = df.iloc[idx_start: idx_end+1].copy()
-    else:
-        default_start = x_min + 0.25*(x_max-x_min)
-        default_end = x_min + 0.75*(x_max-x_min)
-        step = (x_max-x_min)/100.0 if (x_max-x_min)>0 else 0.0
-        # make sure step positive
-        step = max(step, (x_max - x_min) / 100.0 if x_max>x_min else 0.0)
-        start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
-                              value=(default_start, default_end),
-                              step=step if step>0 else None,
-                              key="sn_region_slider")
-        region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
-
-    if region.shape[0] < 2:
-        st.warning("Select a larger region (or slide the handles).")
-
-    # Plot chromatogram with highlighted region
-    fig, ax = plt.subplots(figsize=(10,3))
-    ax.plot(df["X"], df["Y"], label="Chromatogram")
-    try:
-        ax.axvspan(start, end, color="orange", alpha=0.3, label="Selected region")
-    except Exception:
-        pass
-    ax.set_xlabel("X (original scale)")
-    ax.set_ylabel("Signal")
-    ax.legend()
-    st.pyplot(fig)
-
-    # compute stats automatically
-    if region.shape[0] >= 2:
-        peak = float(np.max(region["Y"].values))
-        baseline = float(np.mean(region["Y"].values))
-        height = peak - baseline
-        noise_std = float(np.std(region["Y"].values, ddof=0))
-        unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_region")
-
-        sn_classic = peak / noise_std if noise_std != 0 else float("nan")
-        sn_usp = height / noise_std if noise_std != 0 else float("nan")
-
-        st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
-        st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
-
-        # slope conversion: use stored slope or user input
-        slope_for_conversion = st.session_state.linear_slope if (st.session_state.linear_slope is not None and st.session_state.linear_slope!=0) else None
-        user_slope = st.number_input("If slope not set, enter slope for conc. conversion (optional)", value=0.0, format="%.6f", key="sn_user_slope")
-        slope_to_use = slope_for_conversion if slope_for_conversion else (user_slope if user_slope!=0 else None)
-        if slope_to_use:
-            lod = 3.3 * noise_std / slope_to_use
-            loq = 10 * noise_std / slope_to_use
-            st.write(f"{t('lod')} ({unit}): {lod:.6f}")
-            st.write(f"{t('loq')} ({unit}): {loq:.6f}")
-
-        # Export CSV of region
-        csv_buf = io.StringIO()
-        pd.DataFrame({"X":region["X"].values, "Signal":region["Y"].values}).to_csv(csv_buf, index=False)
-        st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
-
-        # Export PDF snapshot + metrics
-        if st.button(t("export_sn_pdf")):
-            ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(region["X"].values, region["Y"].values)
-            axf.set_title("Selected region")
-            axf.set_xlabel("X (original)")
-            axf.set_ylabel("Signal")
-            buf2 = io.BytesIO()
-            ffig.savefig(buf2, format="png", bbox_inches="tight")
-            buf2.seek(0)
-            lines = [
-                f"File: {uploaded.name}",
-                f"User: {st.session_state.user or 'Unknown'}",
-                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                f"{t('sn_classic')}: {sn_classic:.4f}",
-                f"{t('sn_usp')}: {sn_usp:.4f}"
-            ]
-            if slope_to_use:
-                lines.append(f"Slope used: {slope_to_use:.6f}")
-                lines.append(f"{t('lod')}: {lod:.6f}")
-                lines.append(f"{t('loq')}: {loq:.6f}")
-            logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
-            pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf2, logo_path=logo_path)
-            st.download_button("Download S/N PDF", pdfb, file_name="sn_report.pdf", mime="application/pdf")
-    else:
-        st.info("Selected region contains less than 2 points; cannot compute S/N metrics.")
-
-    with st.expander(t("formulas"), expanded=False):
-        st.markdown(r"""
-        **Classic S/N:** \( \dfrac{Signal_{peak}}{\sigma_{noise}} \)  
-        **USP S/N:** \( \dfrac{Height}{\sigma_{noise}} \) where Height ≈ (peak - baseline)  
-        **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
-        **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
-        """)
+    st.line_chart(df.set_index("Time")["Signal"])
 
 # -------------------------
-# Main app (tabs at top, modern)
+# Main app
 # -------------------------
 def main_app():
-    header_area()
-    cols = st.columns([1,3,1])
-    with cols[2]:
-        lang = st.selectbox("", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1, key="top_lang")
-        st.session_state.lang = lang
+    st.session_state.user = st.session_state.user or None
+    if st.session_state.user is None:
+        login_screen()
+        return
 
-    # tabs: admin only visible to admin users; admin does NOT have calculations access
-    if st.session_state.role == "admin":
-        tabs = st.tabs([t("admin")])
-        with tabs[0]:
-            admin_panel()
-    else:
-        tabs = st.tabs([t("linearity"), t("sn")])
-        with tabs[0]:
-            linearity_panel()
-        with tabs[1]:
-            sn_panel_full()
+    st.sidebar.button(t("logout"), on_click=lambda: st.session_state.update({"user":None,"role":None}) or st.experimental_rerun())
 
-    if st.button(t("logout")):
-        st.session_state.user = None
-        st.session_state.role = None
-        st.session_state.linear_slope = None
-        st.experimental_rerun()
+    tabs = [t("linearity"), t("sn")]
+    if st.session_state.role=="admin":
+        tabs.append(t("admin"))
+
+    selected = st.radio(t("select_section"), tabs, horizontal=True)
+
+    if selected==t("linearity"):
+        linearity_panel()
+    elif selected==t("sn"):
+        sn_panel_full()
+    elif selected==t("admin") and st.session_state.role=="admin":
+        admin_panel()
 
 # -------------------------
-# Entry point
+# Run app
 # -------------------------
 def run():
-    if st.session_state.user:
-        main_app()
-    else:
-        login_screen()
+    main_app()
 
 if __name__ == "__main__":
     run()
