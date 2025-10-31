@@ -527,6 +527,8 @@ def linearity_panel():
 # -------------------------
 # S/N panel (full) with sliders on x-axis and manual entry (automatic)
 # -------------------------
+# S/N panel (full, fixed image/pdf extraction)
+# -------------------------
 def sn_panel_full():
     st.header(t("sn"))
     st.write(t("digitize_info"))
@@ -538,18 +540,19 @@ def sn_panel_full():
     else:
         sn_manual_mode = False
 
-    # Manual input mode (H/h) — automatic display of results
+    # --- Manual mode ---
     if sn_manual_mode:
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
         slope_input = st.number_input("Slope (optional, for conc. conversion)", value=float(st.session_state.linear_slope or 0.0), format="%.6f", key="manual_slope")
         unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_manual")
-        # automatic display without any button
+
         sn_classic = H / h if h != 0 else float("nan")
         sn_usp = 2 * H / h if h != 0 else float("nan")
         st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
         st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
+
         if slope_input:
             try:
                 lod = 3.3 * h / slope_input
@@ -560,161 +563,168 @@ def sn_panel_full():
                 pass
         return
 
-    # If file uploaded, try to parse robustly
+    # --- File handling ---
     name = uploaded.name.lower()
     df = None
 
+    # CSV mode
     if name.endswith(".csv"):
         try:
             uploaded.seek(0)
-            # try with pandas autodetect
             try:
                 df0 = pd.read_csv(uploaded)
             except Exception:
                 uploaded.seek(0)
                 df0 = pd.read_csv(uploaded, sep=';', engine='python')
+
             if df0.shape[1] < 2:
                 st.error("CSV must have at least two columns")
                 return
-            # try to detect columns name
+
             cols_low = [c.lower() for c in df0.columns]
             if "time" in cols_low and "signal" in cols_low:
                 idx_t = cols_low.index("time")
                 idx_s = cols_low.index("signal")
-                df = pd.DataFrame({"X": pd.to_numeric(df0.iloc[:, idx_t], errors="coerce"),
-                                   "Y": pd.to_numeric(df0.iloc[:, idx_s], errors="coerce")})
+                df = pd.DataFrame({
+                    "X": pd.to_numeric(df0.iloc[:, idx_t], errors="coerce"),
+                    "Y": pd.to_numeric(df0.iloc[:, idx_s], errors="coerce")
+                })
             else:
-                # fallback to first two columns
                 df = df0.iloc[:, :2].copy()
                 df.columns = ["X", "Y"]
                 df["X"] = pd.to_numeric(df["X"], errors="coerce")
                 df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
+
             st.subheader("Raw data preview")
             st.dataframe(df.head(50))
         except Exception as e:
             st.error(f"CSV read error: {e}")
             return
 
-    elif name.endswith((".png",".jpg",".jpeg")):
+    # Image mode
+    elif name.endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
         try:
             uploaded.seek(0)
             orig_image = Image.open(uploaded).convert("RGB")
-            st.subheader("Original image (as uploaded)")
+            st.subheader("Original chromatogram image")
             st.image(orig_image, use_column_width=True)
-            df_digit = extract_xy_from_image_pytesseract(orig_image)
-            if not df_digit.empty:
-                df_digit = df_digit.sort_values("X")
-                df = df_digit.rename(columns={"X":"X","Y":"Y"})
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                st.success("Digitized numeric data from image (OCR).")
-            else:
-                arr = np.array(orig_image.convert("L"))
-                signal = arr.max(axis=0).astype(float)
-                x_axis = np.arange(len(signal))
-                df = pd.DataFrame({"X": x_axis, "Y": signal})
-                st.info("No numeric table found in image. Using vertical max-projection.")
+
+            gray = np.array(orig_image.convert("L"))
+            gray = 255 - gray  # invert
+            gray = (gray - gray.min()) / (gray.max() - gray.min() + 1e-6)
+            threshold = np.mean(gray) + 0.3 * np.std(gray)
+            mask = gray > threshold
+
+            y_coords = []
+            for x in range(mask.shape[1]):
+                ys = np.where(mask[:, x])[0]
+                if len(ys) > 0:
+                    y_coords.append(mask.shape[0] - np.median(ys))
+                else:
+                    y_coords.append(np.nan)
+
+            y_coords = np.array(y_coords)
+            x_coords = np.arange(len(y_coords))
+            valid = ~np.isnan(y_coords)
+            x_coords = x_coords[valid]
+            y_coords = y_coords[valid]
+            if len(x_coords) < 3:
+                st.error("Signal line not detected (too faint or image too small).")
+                return
+
+            from scipy.ndimage import gaussian_filter1d
+            y_smooth = gaussian_filter1d(y_coords, sigma=2)
+
+            df = pd.DataFrame({"X": x_coords, "Y": y_smooth})
+            st.success(f"Extracted {len(df)} points from chromatogram.")
         except Exception as e:
-            st.error(f"Image error: {e}")
+            st.error(f"Image extraction error: {e}")
             return
 
+    # PDF mode
     elif name.endswith(".pdf"):
-        # if pdf2image not available, allow download original and warn
         if convert_from_bytes is None:
-            st.warning("PDF digitizing requires pdf2image + poppler. Cannot process PDF here.")
+            st.warning("PDF digitizing requires pdf2image + poppler.")
             uploaded.seek(0)
             st.download_button(t("download_original_pdf"), uploaded.read(), file_name=uploaded.name)
             return
         try:
             uploaded.seek(0)
-            pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
+            pages = convert_from_bytes(uploaded.read(), dpi=300, first_page=1, last_page=1)
             if not pages:
                 st.error("No pages extracted from PDF")
                 return
-            orig_image = pages[0]
-            st.subheader("Original PDF page (as image)")
+            orig_image = pages[0].convert("RGB")
+            st.subheader("PDF chromatogram (first page)")
             st.image(orig_image, use_column_width=True)
-            df_digit = extract_xy_from_image_pytesseract(orig_image)
-            if not df_digit.empty:
-                df_digit = df_digit.sort_values("X")
-                df = df_digit.rename(columns={"X":"X","Y":"Y"})
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                st.success("Digitized numeric data from PDF (OCR).")
-            else:
-                arr = np.array(orig_image.convert("L"))
-                signal = arr.max(axis=0).astype(float)
-                x_axis = np.arange(len(signal))
-                df = pd.DataFrame({"X": x_axis, "Y": signal})
-                st.info("No numeric table found in PDF page. Using vertical max-projection.")
+
+            gray = np.array(orig_image.convert("L"))
+            gray = 255 - gray
+            gray = (gray - gray.min()) / (gray.max() - gray.min() + 1e-6)
+            threshold = np.mean(gray) + 0.3 * np.std(gray)
+            mask = gray > threshold
+
+            y_coords = []
+            for x in range(mask.shape[1]):
+                ys = np.where(mask[:, x])[0]
+                if len(ys) > 0:
+                    y_coords.append(mask.shape[0] - np.median(ys))
+                else:
+                    y_coords.append(np.nan)
+
+            y_coords = np.array(y_coords)
+            x_coords = np.arange(len(y_coords))
+            valid = ~np.isnan(y_coords)
+            x_coords = x_coords[valid]
+            y_coords = y_coords[valid]
+            if len(x_coords) < 3:
+                st.error("Could not detect chromatogram line from PDF.")
+                return
+
+            from scipy.ndimage import gaussian_filter1d
+            y_smooth = gaussian_filter1d(y_coords, sigma=2)
+            df = pd.DataFrame({"X": x_coords, "Y": y_smooth})
+            st.success(f"Extracted {len(df)} points from PDF chromatogram.")
         except Exception as e:
-            st.error(f"PDF error: {e}")
+            st.error(f"PDF extraction error: {e}")
             return
+
     else:
         st.error("Unsupported file type")
         return
 
+    # --- Region selection ---
     if df is None or df.empty:
         st.warning("No valid signal detected.")
         return
 
-    # convert to numeric and sort
-    try:
-        df["X"] = pd.to_numeric(df["X"], errors="coerce")
-        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-        df = df.dropna().sort_values("X").reset_index(drop=True)
-        x_axis = df["X"].values
-        signal = df["Y"].values
-    except Exception as e:
-        st.error(f"Data processing error: {e}")
-        return
+    df = df.dropna().sort_values("X").reset_index(drop=True)
+    x_axis = df["X"].values
+    signal = df["Y"].values
 
-    # Region selection: handle case x_min == x_max
     st.subheader(t("select_region"))
-    x_min = float(np.min(x_axis))
-    x_max = float(np.max(x_axis))
-    if x_max == x_min:
-        # degenerate case: create indices for slider
-        x_min = 0.0
-        x_max = float(len(x_axis)-1) if len(x_axis)>1 else 1.0
-        default_start = x_min
-        default_end = x_max
-        step = 1.0
-        # map X for display, but use integer indices
-        start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
-                              value=(default_start, default_end), step=step, key="sn_region_slider")
-        # select by indices
-        idx_start = int(max(0, round(start)))
-        idx_end = int(min(len(df)-1, round(end)))
-        region = df.iloc[idx_start: idx_end+1].copy()
-    else:
-        default_start = x_min + 0.25*(x_max-x_min)
-        default_end = x_min + 0.75*(x_max-x_min)
-        step = (x_max-x_min)/100.0 if (x_max-x_min)>0 else 0.0
-        # make sure step positive
-        step = max(step, (x_max - x_min) / 100.0 if x_max>x_min else 0.0)
-        start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
-                              value=(default_start, default_end),
-                              step=step if step>0 else None,
-                              key="sn_region_slider")
-        region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
+    x_min, x_max = float(np.min(x_axis)), float(np.max(x_axis))
+    default_start = x_min + 0.25*(x_max-x_min)
+    default_end = x_min + 0.75*(x_max-x_min)
+    step = max((x_max-x_min)/100.0, 1e-6)
 
+    start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
+                           value=(default_start, default_end), step=step, key="sn_region_slider")
+
+    region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
     if region.shape[0] < 2:
         st.warning("Select a larger region (or slide the handles).")
 
-    # Plot chromatogram with highlighted region
+    # --- Plot ---
     fig, ax = plt.subplots(figsize=(10,3))
     ax.plot(df["X"], df["Y"], label="Chromatogram")
-    try:
-        ax.axvspan(start, end, color="orange", alpha=0.3, label="Selected region")
-    except Exception:
-        pass
+    ax.axvspan(start, end, color="orange", alpha=0.3, label="Selected region")
     ax.set_xlabel("X (original scale)")
     ax.set_ylabel("Signal")
     ax.legend()
     st.pyplot(fig)
 
-    # compute stats automatically
+    # --- Compute metrics ---
     if region.shape[0] >= 2:
         peak = float(np.max(region["Y"].values))
         baseline = float(np.mean(region["Y"].values))
@@ -728,25 +738,25 @@ def sn_panel_full():
         st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
         st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
 
-        # slope conversion: use stored slope or user input
-        slope_for_conversion = st.session_state.linear_slope if (st.session_state.linear_slope is not None and st.session_state.linear_slope!=0) else None
+        slope_for_conversion = st.session_state.linear_slope if (st.session_state.linear_slope not in [None,0]) else None
         user_slope = st.number_input("If slope not set, enter slope for conc. conversion (optional)", value=0.0, format="%.6f", key="sn_user_slope")
         slope_to_use = slope_for_conversion if slope_for_conversion else (user_slope if user_slope!=0 else None)
+
         if slope_to_use:
             lod = 3.3 * noise_std / slope_to_use
             loq = 10 * noise_std / slope_to_use
             st.write(f"{t('lod')} ({unit}): {lod:.6f}")
             st.write(f"{t('loq')} ({unit}): {loq:.6f}")
 
-        # Export CSV of region
+        # --- Export region ---
         csv_buf = io.StringIO()
-        pd.DataFrame({"X":region["X"].values, "Signal":region["Y"].values}).to_csv(csv_buf, index=False)
+        region.to_csv(csv_buf, index=False)
         st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
 
-        # Export PDF snapshot + metrics
+        # --- Export PDF ---
         if st.button(t("export_sn_pdf")):
             ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(region["X"].values, region["Y"].values)
+            axf.plot(region["X"], region["Y"])
             axf.set_title("Selected region")
             axf.set_xlabel("X (original)")
             axf.set_ylabel("Signal")
@@ -777,7 +787,6 @@ def sn_panel_full():
         **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
         **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
         """)
-
 # -------------------------
 # Main app (tabs at top, modern)
 # -------------------------
