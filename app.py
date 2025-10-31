@@ -526,270 +526,134 @@ def linearity_panel():
             st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
 # -------------------------
 # S/N panel (full) with sliders on x-axis and manual entry (automatic)
-# -------------------------
-# -------------------------
-# S/N panel (full) with sliders on x-axis and manual entry (automatic)
-# -------------------------
-# S/N panel (full, fixed image/pdf extraction)
-# -------------------------
-def sn_panel_full():
-    st.header(t("sn"))
-    st.write(t("digitize_info"))
+def sn_panel():
+    st.header("Signal / Noise (S/N)")
 
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_uploader")
-    if uploaded is None:
-        st.info("Upload a file or use manual S/N input.")
-        sn_manual_mode = True
-    else:
-        sn_manual_mode = False
-
-    # --- Manual mode ---
-    if sn_manual_mode:
-        st.subheader("Manual S/N calculation")
-        H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
-        h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
-        slope_input = st.number_input("Slope (optional, for conc. conversion)", value=float(st.session_state.linear_slope or 0.0), format="%.6f", key="manual_slope")
-        unit = st.selectbox(t("unit"), ["Âµg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_manual")
-
-        sn_classic = H / h if h != 0 else float("nan")
-        sn_usp = 2 * H / h if h != 0 else float("nan")
-        st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
-        st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
-
-        if slope_input:
-            try:
-                lod = 3.3 * h / slope_input
-                loq = 10 * h / slope_input
-                st.write(f"{t('lod')} ({unit}): {lod:.6f}")
-                st.write(f"{t('loq')} ({unit}): {loq:.6f}")
-            except Exception:
-                pass
-        return
-
-    # --- File handling ---
-    name = uploaded.name.lower()
+    uploaded = st.file_uploader("Upload chromatogram (CSV, PNG, JPG, or PDF)", type=["csv", "png", "jpg", "jpeg", "pdf"], key="sn_upload")
     df = None
+    img = None
 
-    # CSV mode
-    if name.endswith(".csv"):
+    # --- CSV mode ---
+    if uploaded and uploaded.name.lower().endswith(".csv"):
         try:
             uploaded.seek(0)
             try:
-                df0 = pd.read_csv(uploaded)
+                df = pd.read_csv(uploaded)
             except Exception:
                 uploaded.seek(0)
-                df0 = pd.read_csv(uploaded, sep=';', engine='python')
-
-            if df0.shape[1] < 2:
-                st.error("CSV must have at least two columns")
-                return
-
-            cols_low = [c.lower() for c in df0.columns]
+                df = pd.read_csv(uploaded, sep=';', engine='python')
+            cols_low = [c.lower() for c in df.columns]
             if "time" in cols_low and "signal" in cols_low:
-                idx_t = cols_low.index("time")
-                idx_s = cols_low.index("signal")
-                df = pd.DataFrame({
-                    "X": pd.to_numeric(df0.iloc[:, idx_t], errors="coerce"),
-                    "Y": pd.to_numeric(df0.iloc[:, idx_s], errors="coerce")
-                })
+                df = df.rename(columns={df.columns[cols_low.index("time")]: "Time",
+                                        df.columns[cols_low.index("signal")]: "Signal"})
+            elif len(df.columns) >= 2:
+                df = df.iloc[:, :2].copy()
+                df.columns = ["Time", "Signal"]
             else:
-                df = df0.iloc[:, :2].copy()
-                df.columns = ["X", "Y"]
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-
-            st.subheader("Raw data preview")
-            st.dataframe(df.head(50))
+                st.error("CSV must contain at least two columns (time, signal).")
+                df = None
         except Exception as e:
-            st.error(f"CSV read error: {e}")
-            return
+            st.error(f"CSV error: {e}")
 
-    # Image mode
-    elif name.endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+    # --- IMAGE or PDF mode ---
+    elif uploaded:
         try:
-            uploaded.seek(0)
-            orig_image = Image.open(uploaded).convert("RGB")
-            st.subheader("Original chromatogram image")
-            st.image(orig_image, use_column_width=True)
+            import cv2
+            from PIL import Image
+            import numpy as np
+            import fitz  # PyMuPDF for PDF extraction
 
-            gray = np.array(orig_image.convert("L"))
-            gray = 255 - gray  # invert
-            gray = (gray - gray.min()) / (gray.max() - gray.min() + 1e-6)
-            threshold = np.mean(gray) + 0.3 * np.std(gray)
-            mask = gray > threshold
+            if uploaded.name.lower().endswith(".pdf"):
+                with fitz.open(stream=uploaded.read(), filetype="pdf") as pdf:
+                    page = pdf.load_page(0)
+                    pix = page.get_pixmap(dpi=300)
+                    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            else:
+                img = Image.open(uploaded).convert("RGB")
 
-            y_coords = []
-            for x in range(mask.shape[1]):
-                ys = np.where(mask[:, x])[0]
-                if len(ys) > 0:
-                    y_coords.append(mask.shape[0] - np.median(ys))
-                else:
-                    y_coords.append(np.nan)
+            st.image(img, caption="Chromatogram", use_container_width=True)
 
-            y_coords = np.array(y_coords)
-            x_coords = np.arange(len(y_coords))
-            valid = ~np.isnan(y_coords)
-            x_coords = x_coords[valid]
-            y_coords = y_coords[valid]
-            if len(x_coords) < 3:
-                st.error("Signal line not detected (too faint or image too small).")
-                return
+            # Convert to grayscale, enhance and extract signal trace
+            gray = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2GRAY)
+            gray = cv2.GaussianBlur(gray, (3, 3), 0)
+            gray = cv2.equalizeHist(gray)
 
-            from scipy.ndimage import gaussian_filter1d
-            y_smooth = gaussian_filter1d(y_coords, sigma=2)
+            # Extract a 1D profile (average intensity)
+            signal_profile = np.mean(255 - gray, axis=0)
+            x = np.arange(len(signal_profile))
+            df = pd.DataFrame({"Time": x, "Signal": signal_profile})
 
-            df = pd.DataFrame({"X": x_coords, "Y": y_smooth})
-            st.success(f"Extracted {len(df)} points from chromatogram.")
         except Exception as e:
-            st.error(f"Image extraction error: {e}")
-            return
+            st.error(f"Image/PDF parse error: {e}")
+            df = None
 
-    # PDF mode
-    elif name.endswith(".pdf"):
-        if convert_from_bytes is None:
-            st.warning("PDF digitizing requires pdf2image + poppler.")
-            uploaded.seek(0)
-            st.download_button(t("download_original_pdf"), uploaded.read(), file_name=uploaded.name)
-            return
-        try:
-            uploaded.seek(0)
-            pages = convert_from_bytes(uploaded.read(), dpi=300, first_page=1, last_page=1)
-            if not pages:
-                st.error("No pages extracted from PDF")
-                return
-            orig_image = pages[0].convert("RGB")
-            st.subheader("PDF chromatogram (first page)")
-            st.image(orig_image, use_column_width=True)
-
-            gray = np.array(orig_image.convert("L"))
-            gray = 255 - gray
-            gray = (gray - gray.min()) / (gray.max() - gray.min() + 1e-6)
-            threshold = np.mean(gray) + 0.3 * np.std(gray)
-            mask = gray > threshold
-
-            y_coords = []
-            for x in range(mask.shape[1]):
-                ys = np.where(mask[:, x])[0]
-                if len(ys) > 0:
-                    y_coords.append(mask.shape[0] - np.median(ys))
-                else:
-                    y_coords.append(np.nan)
-
-            y_coords = np.array(y_coords)
-            x_coords = np.arange(len(y_coords))
-            valid = ~np.isnan(y_coords)
-            x_coords = x_coords[valid]
-            y_coords = y_coords[valid]
-            if len(x_coords) < 3:
-                st.error("Could not detect chromatogram line from PDF.")
-                return
-
-            from scipy.ndimage import gaussian_filter1d
-            y_smooth = gaussian_filter1d(y_coords, sigma=2)
-            df = pd.DataFrame({"X": x_coords, "Y": y_smooth})
-            st.success(f"Extracted {len(df)} points from PDF chromatogram.")
-        except Exception as e:
-            st.error(f"PDF extraction error: {e}")
-            return
-
-    else:
-        st.error("Unsupported file type")
+    if df is None or len(df) < 2:
+        st.info("Please upload a chromatogram or CSV with valid data.")
         return
 
-    # --- Region selection ---
-    if df is None or df.empty:
-        st.warning("No valid signal detected.")
-        return
+    # --- Signal and noise calculation ---
+    from scipy.signal import find_peaks
 
-    df = df.dropna().sort_values("X").reset_index(drop=True)
-    x_axis = df["X"].values
-    signal = df["Y"].values
+    try:
+        signal = df["Signal"].values
+        peaks, _ = find_peaks(signal, height=np.mean(signal) + 2*np.std(signal))
+        noise_region = signal if len(peaks) == 0 else np.delete(signal, peaks)
+        noise_std = np.std(noise_region)
+        peak_height = np.max(signal) - np.min(signal)
+        sn_ratio = peak_height / noise_std if noise_std != 0 else 0
 
-    st.subheader(t("select_region"))
-    x_min, x_max = float(np.min(x_axis)), float(np.max(x_axis))
-    default_start = x_min + 0.25*(x_max-x_min)
-    default_end = x_min + 0.75*(x_max-x_min)
-    step = max((x_max-x_min)/100.0, 1e-6)
+        st.metric("Signal-to-Noise (S/N)", f"{sn_ratio:.2f}")
 
-    start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
-                           value=(default_start, default_end), step=step, key="sn_region_slider")
+        # --- LOD & LOQ based on linearity slope ---
+        slope = st.session_state.get("linear_slope", None)
+        if slope and slope != 0:
+            lod = 3.3 * noise_std / slope
+            loq = 10 * noise_std / slope
+            st.metric("LOD (based on slope)", f"{lod:.6f}")
+            st.metric("LOQ (based on slope)", f"{loq:.6f}")
+        else:
+            st.warning("La pente de la linéarité n’est pas encore disponible. Calculez d’abord la linéarité.")
+            lod, loq = None, None
 
-    region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
-    if region.shape[0] < 2:
-        st.warning("Select a larger region (or slide the handles).")
+        # --- Plot chromatogram ---
+        fig, ax = plt.subplots(figsize=(7, 3))
+        ax.plot(df["Time"], df["Signal"], label="Chromatogram")
+        ax.set_xlabel("Time (a.u.)")
+        ax.set_ylabel("Signal (a.u.)")
+        ax.set_title("Extracted Chromatogram")
+        st.pyplot(fig)
 
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(10,3))
-    ax.plot(df["X"], df["Y"], label="Chromatogram")
-    ax.axvspan(start, end, color="orange", alpha=0.3, label="Selected region")
-    ax.set_xlabel("X (original scale)")
-    ax.set_ylabel("Signal")
-    ax.legend()
-    st.pyplot(fig)
+        # --- PDF export ---
+        company = st.text_input("Company / Lab Name", key="sn_company")
+        if st.button("Generate PDF Report", key="sn_pdf"):
+            if not company or company.strip() == "":
+                st.warning("Please enter a company name before exporting.")
+            else:
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", bbox_inches="tight")
+                buf.seek(0)
 
-    # --- Compute metrics ---
-    if region.shape[0] >= 2:
-        peak = float(np.max(region["Y"].values))
-        baseline = float(np.mean(region["Y"].values))
-        height = peak - baseline
-        noise_std = float(np.std(region["Y"].values, ddof=0))
-        unit = st.selectbox(t("unit"), ["Âµg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_region")
+                lines = [
+                    f"Company: {company or 'N/A'}",
+                    f"User: {st.session_state.user or 'Unknown'}",
+                    f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"S/N: {sn_ratio:.2f}",
+                    f"Noise (σ): {noise_std:.4f}",
+                    f"Peak height: {peak_height:.4f}"
+                ]
+                if slope:
+                    lines.append(f"Slope (from linearity): {slope:.6f}")
+                if lod and loq:
+                    lines.append(f"LOD: {lod:.6f}")
+                    lines.append(f"LOQ: {loq:.6f}")
 
-        sn_classic = peak / noise_std if noise_std != 0 else float("nan")
-        sn_usp = height / noise_std if noise_std != 0 else float("nan")
+                logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
+                pdf_bytes = generate_pdf_bytes("S/N Report", lines, img_bytes=buf, logo_path=logo_path)
+                st.download_button("Download PDF", pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
 
-        st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
-        st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
+    except Exception as e:
+        st.error(f"Processing error: {e}")
 
-        slope_for_conversion = st.session_state.linear_slope if (st.session_state.linear_slope not in [None,0]) else None
-        user_slope = st.number_input("If slope not set, enter slope for conc. conversion (optional)", value=0.0, format="%.6f", key="sn_user_slope")
-        slope_to_use = slope_for_conversion if slope_for_conversion else (user_slope if user_slope!=0 else None)
-
-        if slope_to_use:
-            lod = 3.3 * noise_std / slope_to_use
-            loq = 10 * noise_std / slope_to_use
-            st.write(f"{t('lod')} ({unit}): {lod:.6f}")
-            st.write(f"{t('loq')} ({unit}): {loq:.6f}")
-
-        # --- Export region ---
-        csv_buf = io.StringIO()
-        region.to_csv(csv_buf, index=False)
-        st.download_button(t("download_csv"), csv_buf.getvalue(), file_name="sn_region.csv", mime="text/csv")
-
-        # --- Export PDF ---
-        if st.button(t("export_sn_pdf")):
-            ffig, axf = plt.subplots(figsize=(7,3))
-            axf.plot(region["X"], region["Y"])
-            axf.set_title("Selected region")
-            axf.set_xlabel("X (original)")
-            axf.set_ylabel("Signal")
-            buf2 = io.BytesIO()
-            ffig.savefig(buf2, format="png", bbox_inches="tight")
-            buf2.seek(0)
-            lines = [
-                f"File: {uploaded.name}",
-                f"User: {st.session_state.user or 'Unknown'}",
-                f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                f"{t('sn_classic')}: {sn_classic:.4f}",
-                f"{t('sn_usp')}: {sn_usp:.4f}"
-            ]
-            if slope_to_use:
-                lines.append(f"Slope used: {slope_to_use:.6f}")
-                lines.append(f"{t('lod')}: {lod:.6f}")
-                lines.append(f"{t('loq')}: {loq:.6f}")
-            logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
-            pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf2, logo_path=logo_path)
-            st.download_button("Download S/N PDF", pdfb, file_name="sn_report.pdf", mime="application/pdf")
-    else:
-        st.info("Selected region contains less than 2 points; cannot compute S/N metrics.")
-
-    with st.expander(t("formulas"), expanded=False):
-        st.markdown(r"""
-        **Classic S/N:** \( \dfrac{Signal_{peak}}{\sigma_{noise}} \)  
-        **USP S/N:** \( \dfrac{Height}{\sigma_{noise}} \) where Height â‰ˆ (peak - baseline)  
-        **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
-        **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
-        """)
 # -------------------------
 # Main app (tabs at top, modern)
 # -------------------------
