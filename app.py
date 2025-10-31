@@ -525,15 +525,20 @@ def linearity_panel():
             pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
 # -------------------------
-# S/N panel (full) with sliders on x-axis and manual entry (automatic)
 # -------------------------
-# ✅ S/N PANEL (corrigé, slope importée automatiquement depuis la linéarité)
+# ✅ S/N PANEL (corrigé + debug léger)
 # -------------------------
 def sn_panel_full():
+    # 🔹 DEBUG : Indique que le panneau S/N démarre
+    st.write("🟢 DEBUG: S/N panel started")
+
     st.header(t("sn"))
     st.write(t("digitize_info"))
 
     uploaded = st.file_uploader(t("upload_chrom"), type=["csv", "png", "jpg", "jpeg", "pdf"], key="sn_uploader")
+
+    # 🔹 DEBUG : Fichier uploadé ?
+    st.write(f"🟢 DEBUG: Uploaded file = {uploaded.name if uploaded else 'None'}")
 
     if uploaded is None:
         st.info("Upload a file or use manual S/N input.")
@@ -547,11 +552,19 @@ def sn_panel_full():
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
 
-        # Import slope from linearity if available
-        slope_auto = float(st.session_state.get("linear_slope", 0.0))
-        slope_input = st.number_input("Slope (imported or manual)", value=slope_auto, format="%.6f", key="manual_slope")
+        # Import slope from linearity if available (✅ correction)
+        try:
+            slope_auto = float(st.session_state.get("linear_slope", 0.0) or 0.0)
+        except Exception:
+            slope_auto = 0.0
 
-        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
+        try:
+            slope_input = st.number_input("Slope (imported or manual)", value=float(slope_auto or 0.0),
+                                          format="%.6f", key="manual_slope")
+        except Exception:
+            slope_input = 0.0
+
+        unit = st.selectbox(t("unit"), ["Âµg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
 
         # Compute automatically
         sn_classic = H / h if h != 0 else float("nan")
@@ -573,6 +586,9 @@ def sn_panel_full():
     # --- FILE MODE ---
     name = uploaded.name.lower()
     df = None
+
+    # 🔹 DEBUG : Type de fichier détecté
+    st.write(f"🟢 DEBUG: File type = {name.split('.')[-1]}")
 
     # --- CSV ---
     if name.endswith(".csv"):
@@ -670,7 +686,8 @@ def sn_panel_full():
     x_min, x_max = float(df["X"].min()), float(df["X"].max())
     default_start = x_min + 0.25 * (x_max - x_min)
     default_end = x_min + 0.75 * (x_max - x_min)
-    start, end = st.slider("", min_value=float(x_min), max_value=float(x_max), value=(default_start, default_end), key="sn_slider")
+    start, end = st.slider("", min_value=float(x_min), max_value=float(x_max),
+                           value=(default_start, default_end), key="sn_slider")
 
     region = df[(df["X"] >= start) & (df["X"] <= end)]
     if region.shape[0] < 2:
@@ -689,7 +706,7 @@ def sn_panel_full():
     baseline = float(region["Y"].mean())
     height = peak - baseline
     noise_std = float(region["Y"].std(ddof=0))
-    unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit")
+    unit = st.selectbox(t("unit"), ["Âµg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit")
 
     sn_classic = peak / noise_std if noise_std != 0 else float("nan")
     sn_usp = height / noise_std if noise_std != 0 else float("nan")
@@ -699,7 +716,12 @@ def sn_panel_full():
 
     # --- LOD/LOQ using linear slope (auto import) ---
     slope_auto = st.session_state.get("linear_slope", None)
-    user_slope = st.number_input("If needed, enter slope manually", value=float(slope_auto or 0.0), format="%.6f", key="sn_slope")
+    try:
+        user_slope = st.number_input("If needed, enter slope manually",
+                                     value=float(slope_auto or 0.0),
+                                     format="%.6f", key="sn_slope")
+    except Exception:
+        user_slope = 0.0
     slope_to_use = user_slope if user_slope != 0 else slope_auto
 
     if slope_to_use:
@@ -739,6 +761,9 @@ def sn_panel_full():
         **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
         **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
         """)
+
+
+
 # -------------------------
 # Main app (tabs at top, modern)
 # -------------------------
