@@ -527,6 +527,9 @@ def linearity_panel():
 # -------------------------
 # S/N panel (full) with sliders on x-axis and manual entry (automatic)
 # -------------------------
+# -------------------------
+# S/N panel (full) with sliders on x-axis and manual entry (automatic)
+# -------------------------
 # S/N panel (full, fixed image/pdf extraction)
 # -------------------------
 def sn_panel_full():
@@ -546,7 +549,7 @@ def sn_panel_full():
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
         slope_input = st.number_input("Slope (optional, for conc. conversion)", value=float(st.session_state.linear_slope or 0.0), format="%.6f", key="manual_slope")
-        unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_manual")
+        unit = st.selectbox(t("unit"), ["Âµg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_manual")
 
         sn_classic = H / h if h != 0 else float("nan")
         sn_usp = 2 * H / h if h != 0 else float("nan")
@@ -730,7 +733,7 @@ def sn_panel_full():
         baseline = float(np.mean(region["Y"].values))
         height = peak - baseline
         noise_std = float(np.std(region["Y"].values, ddof=0))
-        unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_region")
+        unit = st.selectbox(t("unit"), ["Âµg/mL","mg/mL","ng/mL"], index=0, key="sn_unit_region")
 
         sn_classic = peak / noise_std if noise_std != 0 else float("nan")
         sn_usp = height / noise_std if noise_std != 0 else float("nan")
@@ -783,7 +786,7 @@ def sn_panel_full():
     with st.expander(t("formulas"), expanded=False):
         st.markdown(r"""
         **Classic S/N:** \( \dfrac{Signal_{peak}}{\sigma_{noise}} \)  
-        **USP S/N:** \( \dfrac{Height}{\sigma_{noise}} \) where Height ≈ (peak - baseline)  
+        **USP S/N:** \( \dfrac{Height}{\sigma_{noise}} \) where Height â‰ˆ (peak - baseline)  
         **LOD (conc)** = \( 3.3 \cdot \dfrac{\sigma_{noise}}{slope} \)  
         **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
         """)
