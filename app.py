@@ -524,21 +524,45 @@ def linearity_panel():
             logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
             pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
-# -------------------------
-# -------------------------
-# ✅ S/N PANEL (corrigé + debug léger)
-# -------------------------
-def sn_panel_full():
-    # 🔹 DEBUG : Indique que le panneau S/N démarre
-    st.write("🟢 DEBUG: S/N panel started")
 
+# S/N panel (full) with sliders on x-axis and manual entry (automatic)
+# -------------------------
+def extract_xy_from_image_pytesseract(image):
+    """
+    Extract numeric X/Y data from chromatogram image using OCR.
+    Returns empty DataFrame if fails.
+    """
+    import re
+    import pandas as pd
+    import pytesseract
+
+    text = pytesseract.image_to_string(image)
+    lines = text.splitlines()
+    data = []
+
+    for line in lines:
+        # Keep digits, dot, comma, minus, space
+        line_clean = re.sub(r"[^\d\.,\- ]", " ", line)
+        parts = line_clean.split()
+        if len(parts) >= 2:
+            try:
+                x = float(parts[0].replace(",", "."))
+                y = float(parts[1].replace(",", "."))
+                data.append((x, y))
+            except:
+                continue
+    if data:
+        df = pd.DataFrame(data, columns=["X","Y"])
+        return df.sort_values("X").reset_index(drop=True)
+    else:
+        return pd.DataFrame(columns=["X","Y"])
+
+
+def sn_panel_full():
     st.header(t("sn"))
     st.write(t("digitize_info"))
 
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv", "png", "jpg", "jpeg", "pdf"], key="sn_uploader")
-
-    # 🔹 DEBUG : Fichier uploadé ?
-    st.write(f"🟢 DEBUG: Uploaded file = {uploaded.name if uploaded else 'None'}")
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_uploader")
 
     if uploaded is None:
         st.info("Upload a file or use manual S/N input.")
@@ -552,21 +576,11 @@ def sn_panel_full():
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
 
-        # Import slope from linearity if available (✅ correction)
-        try:
-            slope_auto = float(st.session_state.get("linear_slope", 0.0) or 0.0)
-        except Exception:
-            slope_auto = 0.0
-
-        try:
-            slope_input = st.number_input("Slope (imported or manual)", value=float(slope_auto or 0.0),
-                                          format="%.6f", key="manual_slope")
-        except Exception:
-            slope_input = 0.0
+        slope_auto = float(st.session_state.get("linear_slope", 0.0))
+        slope_input = st.number_input("Slope (imported or manual)", value=slope_auto, format="%.6f", key="manual_slope")
 
         unit = st.selectbox(t("unit"), ["Âµg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
 
-        # Compute automatically
         sn_classic = H / h if h != 0 else float("nan")
         sn_usp = 2 * H / h if h != 0 else float("nan")
 
@@ -579,7 +593,7 @@ def sn_panel_full():
                 loq = 10 * h / slope_input
                 st.write(f"{t('lod')} ({unit}): {lod:.6f}")
                 st.write(f"{t('loq')} ({unit}): {loq:.6f}")
-            except Exception:
+            except:
                 pass
         return
 
@@ -587,16 +601,13 @@ def sn_panel_full():
     name = uploaded.name.lower()
     df = None
 
-    # 🔹 DEBUG : Type de fichier détecté
-    st.write(f"🟢 DEBUG: File type = {name.split('.')[-1]}")
-
     # --- CSV ---
     if name.endswith(".csv"):
         try:
             uploaded.seek(0)
             try:
                 df0 = pd.read_csv(uploaded)
-            except Exception:
+            except:
                 uploaded.seek(0)
                 df0 = pd.read_csv(uploaded, sep=";", engine="python")
 
@@ -606,7 +617,8 @@ def sn_panel_full():
 
             cols_low = [c.lower() for c in df0.columns]
             if "time" in cols_low and "signal" in cols_low:
-                df = df0.rename(columns={df0.columns[cols_low.index("time")]: "X", df0.columns[cols_low.index("signal")]: "Y"})
+                df = df0.rename(columns={df0.columns[cols_low.index("time")]: "X",
+                                         df0.columns[cols_low.index("signal")]: "Y"})
             else:
                 df = df0.iloc[:, :2]
                 df.columns = ["X", "Y"]
@@ -618,7 +630,7 @@ def sn_panel_full():
             st.error(f"CSV read error: {e}")
             return
 
-    # --- IMAGE (PNG/JPG/JPEG) ---
+    # --- IMAGE ---
     elif name.endswith((".png", ".jpg", ".jpeg")):
         try:
             uploaded.seek(0)
@@ -626,15 +638,11 @@ def sn_panel_full():
             st.subheader("Original image")
             st.image(orig_image, use_column_width=True)
 
-            # Extract numeric X/Y if possible
             df_digit = extract_xy_from_image_pytesseract(orig_image)
             if not df_digit.empty:
-                df = df_digit.sort_values("X")
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
+                df = df_digit
                 st.success("Numeric data extracted from image (OCR).")
             else:
-                # fallback to pixel intensity (projection)
                 arr = np.array(orig_image.convert("L"))
                 signal = arr.max(axis=0).astype(float)
                 df = pd.DataFrame({"X": np.arange(len(signal)), "Y": signal})
@@ -653,12 +661,11 @@ def sn_panel_full():
             pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
             orig_image = pages[0]
             st.image(orig_image, use_column_width=True)
+
             df_digit = extract_xy_from_image_pytesseract(orig_image)
             if not df_digit.empty:
-                df = df_digit.sort_values("X")
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                st.success("Numeric data extracted from PDF.")
+                df = df_digit
+                st.success("Numeric data extracted from PDF (OCR).")
             else:
                 arr = np.array(orig_image.convert("L"))
                 signal = arr.max(axis=0).astype(float)
@@ -716,12 +723,8 @@ def sn_panel_full():
 
     # --- LOD/LOQ using linear slope (auto import) ---
     slope_auto = st.session_state.get("linear_slope", None)
-    try:
-        user_slope = st.number_input("If needed, enter slope manually",
-                                     value=float(slope_auto or 0.0),
-                                     format="%.6f", key="sn_slope")
-    except Exception:
-        user_slope = 0.0
+    user_slope = st.number_input("If needed, enter slope manually",
+                                 value=float(slope_auto or 0.0), format="%.6f", key="sn_slope")
     slope_to_use = user_slope if user_slope != 0 else slope_auto
 
     if slope_to_use:
@@ -762,9 +765,6 @@ def sn_panel_full():
         **LOQ (conc)** = \( 10 \cdot \dfrac{\sigma_{noise}}{slope} \)
         """)
 
-
-
-# -------------------------
 # Main app (tabs at top, modern)
 # -------------------------
 def main_app():
