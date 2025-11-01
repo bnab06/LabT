@@ -530,224 +530,249 @@ def linearity_panel():
 # -------------------------
 def sn_panel_full():
     """
-    Full S/N panel with OCR/projection fallback, peak detection, and PDF export.
+    Full S/N panel with OCR/projection fallback, peak detection and PDF/CSV export.
+    - Supports CSV, PNG/JPG/JPEG, PDF (first page)
+    - OCR attempted first; if it fails, uses vertical pixel projection (smoothed)
+    - Peak detection inside selected region with scipy.signal.find_peaks
+    - height_factor and min_distance sliders to tune sensitivity
+    - Adds detected peaks (position and height) to the exported PDF
     """
-    import io, os, re
+    import re, io, os
+    from PIL import Image
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from PIL import Image
     from datetime import datetime
     from scipy.ndimage import gaussian_filter1d
     from scipy.signal import find_peaks
-    from fpdf import FPDF
 
-    st.header("Calcul du rapport Signal/Bruit (S/N)")
+    st.header(t("sn"))
+    st.write(t("digitize_info"))
 
-    uploaded = st.file_uploader("Importer un chromatogramme (CSV, image ou PDF)",
-                                type=["csv", "png", "jpg", "jpeg", "pdf"],
-                                key="sn_uploader")
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_uploader")
+    sn_manual_mode = uploaded is None
 
-    # --- Mode manuel si aucun fichier
-    if uploaded is None:
-        st.info("Mode manuel : entrez les valeurs pour calculer S/N.")
-        H = st.number_input("Hauteur du pic (H)", value=0.0)
-        h = st.number_input("Bruit (h)", value=0.0)
-        slope_auto = float(st.session_state.get("linear_slope", 0.0) or 0.0)
-        slope_input = st.number_input("Pente (slope)", value=slope_auto, format="%.6f")
+    # --- MANUAL MODE ---
+    if sn_manual_mode:
+        st.subheader("Manual S/N calculation")
+        H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
+        h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
 
-        sn_classic = H / h if h else float("nan")
-        sn_usp = 2 * H / h if h else float("nan")
+        slope_auto_raw = st.session_state.get("linear_slope", 0.0)
+        try:
+            slope_auto = float(slope_auto_raw)
+        except:
+            slope_auto = 0.0
 
-        st.write(f"S/N (classique) : **{sn_classic:.4f}**")
-        st.write(f"S/N (USP) : **{sn_usp:.4f}**")
+        if slope_auto == 0.0:
+            st.warning("⚠️ La pente (slope) n’est pas encore définie. Faites d'abord la linéarité.")
 
-        if slope_input:
-            lod = 3.3 * h / slope_input
-            loq = 10 * h / slope_input
-            st.write(f"LOD : {lod:.6f}")
-            st.write(f"LOQ : {loq:.6f}")
+        slope_input = st.number_input("Slope (imported or manual)", value=slope_auto, format="%.6f", key="manual_slope")
+        unit = st.selectbox(t("unit"), ["µg/mL", "mg/mL", "ng/mL"], index=0, key="sn_unit_manual")
+
+        sn_classic = H / h if h != 0 else float("nan")
+        sn_usp = 2 * H / h if h != 0 else float("nan")
+        st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
+        st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
+
+        if slope_input != 0:
+            try:
+                lod = 3.3 * h / slope_input
+                loq = 10 * h / slope_input
+                st.write(f"{t('lod')} ({unit}): {lod:.6f}")
+                st.write(f"{t('loq')} ({unit}): {loq:.6f}")
+            except:
+                pass
         return
 
-    # --- Lecture du fichier
+    # --- FILE MODE ---
     name = uploaded.name.lower()
     df = None
 
     def extract_xy_from_image_pytesseract(image):
-        """OCR extraction or vertical projection fallback."""
         import pytesseract
-        try:
-            text = pytesseract.image_to_string(image)
-            lines = text.splitlines()
-            data = []
-            for line in lines:
-                line_clean = re.sub(r"[^\d\.,\- ]", " ", line)
-                parts = line_clean.split()
-                if len(parts) >= 2:
-                    try:
-                        x = float(parts[0].replace(",", "."))
-                        y = float(parts[1].replace(",", "."))
-                        data.append((x, y))
-                    except:
-                        continue
-            if data:
-                return pd.DataFrame(data, columns=["X", "Y"]).sort_values("X").reset_index(drop=True)
-        except Exception:
-            pass
+        text = pytesseract.image_to_string(image)
+        lines = text.splitlines()
+        data = []
+        for line in lines:
+            line_clean = re.sub(r"[^\d\.,\- ]", " ", line)
+            parts = line_clean.split()
+            if len(parts) >= 2:
+                try:
+                    x = float(parts[0].replace(",", "."))
+                    y = float(parts[1].replace(",", "."))
+                    data.append((x, y))
+                except:
+                    continue
+        if data:
+            df_ocr = pd.DataFrame(data, columns=["X", "Y"])
+            return df_ocr.sort_values("X").reset_index(drop=True)
 
-        # Projection fallback
+        # OCR fail → use vertical projection
         arr = np.array(image.convert("L"))
         signal = arr.max(axis=0).astype(float)
-        signal_smooth = gaussian_filter1d(signal, sigma=2)
+        signal_smooth = gaussian_filter1d(signal, sigma=1)
         return pd.DataFrame({"X": np.arange(len(signal_smooth)), "Y": signal_smooth})
 
-    # --- CSV
+    # --- CSV ---
     if name.endswith(".csv"):
-        uploaded.seek(0)
         try:
-            df = pd.read_csv(uploaded)
-        except:
             uploaded.seek(0)
-            df = pd.read_csv(uploaded, sep=";")
-
-        if df.shape[1] >= 2:
-            df.columns = ["X", "Y"] + list(df.columns[2:])
-        else:
-            st.error("Fichier CSV invalide (au moins 2 colonnes nécessaires).")
+            try:
+                df0 = pd.read_csv(uploaded)
+            except:
+                uploaded.seek(0)
+                df0 = pd.read_csv(uploaded, sep=";", engine="python")
+            if df0.shape[1] < 2:
+                st.error("CSV must have at least two columns")
+                return
+            cols_low = [c.lower() for c in df0.columns]
+            if "time" in cols_low and "signal" in cols_low:
+                df = df0.rename(columns={df0.columns[cols_low.index("time")]: "X",
+                                         df0.columns[cols_low.index("signal")]: "Y"})
+            else:
+                df = df0.iloc[:, :2].copy()
+                df.columns = ["X", "Y"]
+            df["X"] = pd.to_numeric(df["X"], errors="coerce")
+            df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
+        except Exception as e:
+            st.error(f"CSV read error: {e}")
             return
 
-    # --- IMAGE
+    # --- IMAGE ---
     elif name.endswith((".png", ".jpg", ".jpeg")):
-        from PIL import Image
-        img = Image.open(uploaded)
-        st.image(img, use_column_width=True)
-        df = extract_xy_from_image_pytesseract(img)
+        try:
+            uploaded.seek(0)
+            orig_image = Image.open(uploaded).convert("RGB")
+            st.subheader("Original image")
+            st.image(orig_image, use_column_width=True)
+            df = extract_xy_from_image_pytesseract(orig_image)
+        except Exception as e:
+            st.error(f"Image error: {e}")
+            return
 
-    # --- PDF
+    # --- PDF ---
     elif name.endswith(".pdf"):
         from pdf2image import convert_from_bytes
-        pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
-        img = pages[0]
-        st.image(img, use_column_width=True)
-        df = extract_xy_from_image_pytesseract(img)
+        try:
+            uploaded.seek(0)
+            pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
+            orig_image = pages[0]
+            st.image(orig_image, use_column_width=True)
+            df = extract_xy_from_image_pytesseract(orig_image)
+        except Exception as e:
+            st.error(f"PDF error: {e}")
+            return
+    else:
+        st.error("Unsupported file type.")
+        return
 
     if df is None or df.empty:
-        st.error("OCR/image projection failed: impossible d’obtenir un signal numérique.")
+        st.warning("No valid signal detected.")
         return
 
     df = df.dropna().sort_values("X").reset_index(drop=True)
-    x_min, x_max = df["X"].min(), df["X"].max()
 
-    # --- Slider de sélection
-    st.subheader("Sélection de la zone d’analyse")
+    # --- Safe region selection slider ---
+    st.subheader(t("select_region"))
+    x_min, x_max = float(df["X"].min()), float(df["X"].max())
+
     if x_min == x_max:
         st.warning("Signal plat ou OCR invalide : le slider est remplacé par une plage artificielle.")
-        df["X"] = np.arange(len(df))
-        x_min, x_max = df["X"].min(), df["X"].max()
+        start, end = 0, len(df) - 1
+    else:
+        default_start = x_min + 0.25*(x_max - x_min)
+        default_end = x_min + 0.75*(x_max - x_min)
+        start, end = st.slider("Select X range", min_value=x_min, max_value=x_max,
+                               value=(default_start, default_end))
 
-    try:
-        start, end = st.slider(
-            "Plage X à analyser",
-            float(x_min), float(x_max),
-            (float(x_min + 0.25 * (x_max - x_min)),
-             float(x_min + 0.75 * (x_max - x_min)))
-        )
-    except:
-        start, end = x_min, x_max
-
-    region = df[(df["X"] >= start) & (df["X"] <= end)]
-    if region.shape[0] < 3:
+    region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
+    if len(region) < 2:
         st.warning("Région trop petite pour détecter un pic.")
-        return
+        peaks_x, peaks_y = np.array([]), np.array([])
+    else:
+        # --- Peak detection ---
+        st.subheader("Peak detection settings")
+        height_factor = st.slider("Height factor (threshold = baseline + height_factor * noise_std)", 0.0, 10.0, 3.0, step=0.1)
+        min_distance = st.number_input("Min distance between peaks (samples)", value=5, min_value=1, step=1)
 
-    # --- Détection des pics
-    st.subheader("Détection de pics")
-    height_factor = st.slider("Facteur de hauteur (multiplicateur du bruit σ)", 0.5, 10.0, 3.0, step=0.1)
-    min_distance_slider = st.slider("Distance minimale entre pics", 1, max(1, len(region)//2), max(1, len(region)//100))
+        baseline = float(region["Y"].mean())
+        noise_std = float(region["Y"].std(ddof=0)) or 1e-12
+        threshold = baseline + height_factor * noise_std
 
-    y = region["Y"].values
-    baseline = np.median(y)
-    noise_std = np.std(y)
-    threshold = baseline + height_factor * noise_std
+        peaks_idx, _ = find_peaks(region["Y"].values, height=threshold, distance=int(min_distance))
+        peaks_x = region["X"].values[peaks_idx] if len(peaks_idx) else np.array([])
+        peaks_y = region["Y"].values[peaks_idx] if len(peaks_idx) else np.array([])
 
-    peaks, _ = find_peaks(y, height=threshold, distance=int(min_distance_slider))
-    n_peaks = len(peaks)
-
-    fig, ax = plt.subplots(figsize=(8, 3))
-    ax.plot(region["X"], region["Y"], label="Signal")
-    if n_peaks > 0:
-        ax.plot(region["X"].iloc[peaks], region["Y"].iloc[peaks], "ro", label="Pics détectés")
-    ax.axhline(threshold, color="gray", linestyle="--", label=f"Seuil ({height_factor:.1f}×σ)")
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(10, 3))
+    ax.plot(df["X"], df["Y"], label="Chromatogram")
+    ax.axvspan(start, end, alpha=0.25, label="Selected region")
+    if len(peaks_x):
+        ax.plot(peaks_x, peaks_y, "r^", label="Detected peaks")
+    ax.hlines(threshold if len(region) >=2 else 0, xmin=start, xmax=end, linestyles="--", label="Threshold")
     ax.legend()
     st.pyplot(fig)
 
-    st.write(f"**Pics détectés :** {n_peaks}")
+    st.write(f"Peaks detected: **{len(peaks_x)}**")
+    if len(peaks_x):
+        st.dataframe(pd.DataFrame({"X": peaks_x, "Y": peaks_y}))
 
-    # --- Calcul S/N, LOD, LOQ
-    if n_peaks > 0:
-        peak_val = float(region["Y"].iloc[peaks].max())
-    else:
-        peak_val = float(region["Y"].max())
+    # --- S/N, LOD/LOQ ---
+    slope_raw = st.session_state.get("linear_slope", 0.0)
+    try:
+        slope = float(slope_raw)
+    except:
+        slope = 0.0
+    if slope == 0.0:
+        st.warning("⚠️ La pente (slope) n’est pas encore définie. Faites d'abord la linéarité.")
+    slope_input = st.number_input("Slope (manual if needed)", value=slope, format="%.6f")
+    slope_to_use = slope_input or slope
 
-    sn_classic = peak_val / noise_std if noise_std else 0
-    st.write(f"S/N (classique) : **{sn_classic:.3f}**")
+    peak_val = float(region["Y"].max()) if len(region) >=2 else 0.0
+    height = peak_val - baseline
+    noise_std = float(region["Y"].std(ddof=0)) or 1e-12
+    unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0)
 
-    slope_auto = float(st.session_state.get("linear_slope", 0.0) or 0.0)
-    if slope_auto != 0:
-        lod = 3.3 * noise_std / slope_auto
-        loq = 10 * noise_std / slope_auto
-        st.write(f"LOD : {lod:.6f}")
-        st.write(f"LOQ : {loq:.6f}")
-    else:
-        lod = loq = None
+    sn_classic = peak_val / noise_std
+    sn_usp = height / noise_std
+    st.write(f"{t('sn_classic')}: {sn_classic:.4f}")
+    st.write(f"{t('sn_usp')}: {sn_usp:.4f}")
 
-    # --- Export PDF
-    def export_pdf_sn(region, peaks_info, sn_classic, slope_auto=None, lod=None, loq=None):
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 10, "Rapport de calcul S/N, LOD et LOQ", ln=True, align="C")
+    if slope_to_use:
+        lod = 3.3 * noise_std / slope_to_use
+        loq = 10 * noise_std / slope_to_use
+        st.write(f"{t('lod')} ({unit}): {lod:.6f}")
+        st.write(f"{t('loq')} ({unit}): {loq:.6f}")
 
-        pdf.set_font("Arial", "", 11)
-        pdf.ln(5)
-        pdf.cell(0, 10, f"Date : {datetime.now():%Y-%m-%d %H:%M:%S}", ln=True)
-        pdf.cell(0, 8, f"Nombre total de points : {len(region)}", ln=True)
+    # --- Export CSV ---
+    csv_buf = io.StringIO()
+    region.to_csv(csv_buf, index=False)
+    st.download_button(t("download_csv"), csv_buf.getvalue(), "sn_region.csv", "text/csv")
 
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "Pics détectés :", ln=True)
-        pdf.set_font("Arial", "", 11)
-        if peaks_info:
-            for i, (x, y) in enumerate(peaks_info, 1):
-                pdf.cell(0, 8, f"Pic {i} : X={x:.3f}, Y={y:.3f}", ln=True)
-        else:
-            pdf.cell(0, 8, "Aucun pic détecté.", ln=True)
+    # --- Export PDF ---
+    if st.button(t("export_sn_pdf")):
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight")
+        buf.seek(0)
+        lines = [
+            f"File: {uploaded.name}",
+            f"User: {getattr(st.session_state,'user','Unknown')}",
+            f"Date: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            f"{t('sn_classic')}: {sn_classic:.4f}",
+            f"{t('sn_usp')}: {sn_usp:.4f}",
+            f"Peaks detected: {len(peaks_x)}"
+        ]
+        if len(peaks_x):
+            lines.append("Peak list (X, Y):")
+            for xi, yi in zip(peaks_x, peaks_y):
+                lines.append(f" - {xi:.6g}, {yi:.6g}")
+        if slope_to_use:
+            lines += [f"Slope: {slope_to_use:.6f}", f"LOD: {lod:.6f}", f"LOQ: {loq:.6f}"]
 
-        pdf.ln(5)
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, "Résultats analytiques :", ln=True)
-        pdf.set_font("Arial", "", 11)
-        pdf.cell(0, 8, f"S/N (classique) : {sn_classic:.3f}", ln=True)
-        if slope_auto:
-            pdf.cell(0, 8, f"Pente (slope) : {slope_auto:.6f}", ln=True)
-        if lod is not None:
-            pdf.cell(0, 8, f"LOD : {lod:.6f}", ln=True)
-        if loq is not None:
-            pdf.cell(0, 8, f"LOQ : {loq:.6f}", ln=True)
-
-        pdf.ln(10)
-        pdf.set_font("Arial", "I", 10)
-        pdf.cell(0, 8, "Généré automatiquement par LabT", ln=True, align="C")
-
-        path = "/mnt/data/SN_Report.pdf"
-        pdf.output(path)
-        return path
-
-    if st.button("📄 Exporter le rapport PDF"):
-        peaks_info = [(region["X"].iloc[i], region["Y"].iloc[i]) for i in peaks] if n_peaks > 0 else []
-        pdf_path = export_pdf_sn(region, peaks_info, sn_classic, slope_auto, lod, loq)
-        st.success("✅ Rapport PDF généré avec succès.")
-        with open(pdf_path, "rb") as f:
-            st.download_button("⬇️ Télécharger le rapport", f, file_name="SN_Report.pdf")
+        logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
+        pdfb = generate_pdf_bytes("S/N Report", lines, img_bytes=buf, logo_path=logo_path)
+        st.download_button("Download S/N PDF", pdfb, "sn_report.pdf", "application/pdf")
 # -------------------------
 # Main app (tabs at top, modern)
 # -------------------------
