@@ -272,111 +272,238 @@ import streamlit as st
 
 import streamlit as st
 
-# -------------------------
-# Login screen
-# -------------------------
+# -*- coding: utf-8 -*-
+import streamlit as st
+import json
+import os
+
+# ==========================================================
+# 📁 Gestion des utilisateurs
+# ==========================================================
+
+USERS_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r") as f:
+            return json.load(f)
+    return {"admin": {"password": "1234", "role": "admin"}}
+
+def save_users(users):
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=4)
+
+USERS = load_users()
+
+
+def find_user_key(username):
+    for u in USERS:
+        if u.lower() == username.lower():
+            return u
+    return None
+
+
+# ==========================================================
+# 🌐 Traduction simple
+# ==========================================================
+
+translations = {
+    "FR": {
+        "username": "Nom d'utilisateur",
+        "password": "Mot de passe",
+        "login": "Connexion",
+        "invalid": "Identifiant ou mot de passe invalide",
+        "powered": "Propulsé par LabT",
+        "change_pwd": "Changer un mot de passe",
+        "admin": "Panneau administrateur",
+        "add_user": "Ajouter un utilisateur",
+        "enter_username": "Nom d'utilisateur",
+        "enter_password": "Mot de passe",
+        "logout": "Déconnexion",
+        "home": "Accueil"
+    },
+    "EN": {
+        "username": "Username",
+        "password": "Password",
+        "login": "Login",
+        "invalid": "Invalid username or password",
+        "powered": "Powered by LabT",
+        "change_pwd": "Change password",
+        "admin": "Admin panel",
+        "add_user": "Add user",
+        "enter_username": "Username",
+        "enter_password": "Password",
+        "logout": "Logout",
+        "home": "Home"
+    }
+}
+
+def t(key):
+    lang = st.session_state.get("lang", "FR")
+    return translations.get(lang, {}).get(key, key)
+
+
+# ==========================================================
+# 🧩 Interface de connexion
+# ==========================================================
+
 def login_screen():
-    st.title("LabT - Login / Connexion")
     st.write("")
-
-    if "lang" not in st.session_state:
-        st.session_state.lang = "FR"
-
-    lang = st.selectbox(
-        "Language / Langue",
-        ["FR", "EN"],
-        index=0 if st.session_state.lang == "FR" else 1,
-        key="login_lang"
-    )
+    lang = st.selectbox("Language / Langue", ["FR", "EN"], 
+                        index=0 if st.session_state.get("lang", "FR") == "FR" else 1)
     st.session_state.lang = lang
 
-    # Login form
-    with st.form(key="login_form"):
-        username = st.text_input("Nom d'utilisateur / Username", key="username_login")
-        password = st.text_input("Mot de passe / Password", type="password", key="password_login")
-        submitted = st.form_submit_button("Connexion / Login")
+    st.markdown(f"### 🔐 {t('login')}")
 
-    if submitted:
+    username = st.text_input(t("username"))
+    password = st.text_input(t("password"), type="password")
+
+    if st.button(t("login")):
         uname = (username or "").strip()
         if not uname:
-            st.error("Nom d'utilisateur vide / Invalid username")
+            st.error(t("invalid"))
             return
+
         matched = find_user_key(uname)
         if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
             st.session_state.role = USERS[matched].get("role", "user")
-            st.session_state.logged_in = True
+            st.session_state.page = "home"
         else:
-            st.error("Identifiants invalides / Invalid credentials")
-            st.session_state.logged_in = False
+            st.error(t("invalid"))
+
+    st.markdown(
+        f"<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>{t('powered')}</div>",
+        unsafe_allow_html=True
+    )
 
 
-# -------------------------
-# Logout function
-# -------------------------
+# ==========================================================
+# ⚙️ Déconnexion
+# ==========================================================
+
 def logout():
-    for key in ["user", "role", "logged_in"]:
-        if key in st.session_state:
-            del st.session_state[key]
+    for key in ["user", "role", "page"]:
+        st.session_state.pop(key, None)
+    st.session_state.page = "login"
 
 
-# -------------------------
-# Admin panel
-# -------------------------
+# ==========================================================
+# 👨‍💼 Panneau Admin
+# ==========================================================
+
 def admin_panel():
-    st.header("Admin Panel / Panneau admin")
-    col_left, col_right = st.columns([2,1])
+    st.header(t("admin"))
 
-    # Users list
+    col_left, col_right = st.columns([2, 1])
+
     with col_left:
-        st.subheader("Existing users / Utilisateurs existants")
+        st.subheader("Utilisateurs existants")
         users_list = list(USERS.keys())
-        sel = st.selectbox("Select user", users_list, key="admin_sel_user")
+        sel = st.selectbox("Sélectionner un utilisateur", users_list)
         if sel:
             info = USERS.get(sel, {})
-            st.write(f"Username: **{sel}**")
-            st.write(f"Role: **{info.get('role','user')}**")
-            if st.button("Modify selected user", key=f"mod_user_{sel}"):
-                with st.expander(f"Modify {sel}", expanded=True):
-                    new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"newpwd_{sel}")
-                    new_role = st.selectbox(
-                        "Role", ["user","admin"], 
-                        index=0 if info.get("role","user")=="user" else 1,
-                        key=f"newrole_{sel}"
-                    )
-                    if st.button("Save changes", key=f"save_{sel}"):
-                        if new_pwd:
-                            USERS[sel]["password"] = new_pwd
-                        USERS[sel]["role"] = new_role
-                        save_users(USERS)
-                        st.success(f"Updated {sel}")
+            st.write(f"**Nom d'utilisateur :** {sel}")
+            st.write(f"**Rôle :** {info.get('role','user')}")
+            new_pwd = st.text_input(f"Nouveau mot de passe pour {sel}", type="password", key=f"pwd_{sel}")
+            new_role = st.selectbox("Rôle", ["user", "admin"], 
+                                    index=0 if info.get("role","user") == "user" else 1, key=f"role_{sel}")
+            if st.button("Enregistrer les modifications"):
+                if new_pwd:
+                    USERS[sel]["password"] = new_pwd
+                USERS[sel]["role"] = new_role
+                save_users(USERS)
+                st.success(f"{sel} mis à jour.")
 
-            if st.button("Delete selected user", key=f"del_{sel}"):
+            if st.button("Supprimer l'utilisateur"):
                 if sel.lower() == "admin":
-                    st.warning("Cannot delete admin")
+                    st.warning("Impossible de supprimer l’administrateur principal.")
                 else:
                     USERS.pop(sel)
                     save_users(USERS)
-                    st.success(f"{sel} deleted")
+                    st.success(f"{sel} supprimé.")
 
-    # Add new user
     with col_right:
-        st.subheader("Add user / Ajouter utilisateur")
-        with st.form(key="form_add_user"):
-            new_user = st.text_input("Username / Nom d'utilisateur", key="add_username")
-            new_pass = st.text_input("Password / Mot de passe", type="password", key="add_password")
-            role = st.selectbox("Role", ["user","admin"], key="add_role")
-            add_sub = st.form_submit_button("Add / Ajouter")
-        if add_sub:
+        st.subheader(t("add_user"))
+        new_user = st.text_input(t("enter_username"), key="add_user")
+        new_pass = st.text_input(t("enter_password"), type="password", key="add_pass")
+        role = st.selectbox("Rôle", ["user", "admin"], key="add_role")
+
+        if st.button("Ajouter"):
             if not new_user.strip() or not new_pass.strip():
-                st.warning("Enter username and password / Entrez nom et mot de passe")
+                st.warning("Entrez un nom d'utilisateur et un mot de passe.")
             else:
-                if find_user_key(new_user) is not None:
-                    st.warning("User exists / Utilisateur existe déjà")
+                if find_user_key(new_user):
+                    st.warning("Utilisateur déjà existant.")
                 else:
                     USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
                     save_users(USERS)
-                    st.success(f"User {new_user.strip()} added")
+                    st.success(f"Utilisateur {new_user.strip()} ajouté.")
+
+
+# ==========================================================
+# 🏠 Page d’accueil
+# ==========================================================
+
+def show_homepage():
+    lang = st.session_state.get("lang", "FR")
+    if lang == "FR":
+        st.subheader("Bienvenue sur LabT !")
+        st.write("Ici s'afficheront tes outils d’analyse, de calcul et de visualisation.")
+    else:
+        st.subheader("Welcome to LabT!")
+        st.write("Here you'll see your analysis, calculation, and visualization tools.")
+
+
+# ==========================================================
+# 🚀 Logique principale
+# ==========================================================
+
+def main_app():
+    if "user" not in st.session_state:
+        st.session_state.page = "login"
+
+    page = st.session_state.get("page", "login")
+
+    if page == "login":
+        login_screen()
+    elif page == "home":
+        user = st.session_state.get("user")
+        role = st.session_state.get("role", "user")
+        lang = st.session_state.get("lang", "FR")
+
+        st.markdown(f"### 👋 {'Bonjour' if lang == 'FR' else 'Hello'}, **{user}** !")
+
+        menu = ["Accueil", "Admin", "Déconnexion"] if role == "admin" else ["Accueil", "Déconnexion"]
+        choice = st.radio("Menu", menu, horizontal=True, label_visibility="collapsed")
+
+        if choice == "Accueil":
+            show_homepage()
+        elif choice == "Admin" and role == "admin":
+            admin_panel()
+        elif choice == "Déconnexion":
+            logout()
+            st.session_state.page = "login"
+            st.rerun()
+
+
+# ==========================================================
+# 🚀 Point d’entrée
+# ==========================================================
+
+def run():
+    st.set_page_config(page_title="LabT", layout="wide", page_icon="🧪")
+
+    if "lang" not in st.session_state:
+        st.session_state.lang = "FR"
+
+    st.title("🧪 LabT")
+    main_app()
+
+
+if __name__ == "__main__":
+    run()
+
 
 
 # -------------------------
