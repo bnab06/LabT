@@ -529,20 +529,6 @@ def linearity_panel():
 # S/N
 # -------------------------
 
-# -*- coding: utf-8 -*-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
-from scipy.signal import find_peaks
-from scipy.ndimage import gaussian_filter1d
-from PIL import Image
-import io, os
-
-# --- Constants / Logo ---
-LOGO_FILE = "logo.png"
-
 # --- Helper translation function ---
 def t(key):
     translations = {
