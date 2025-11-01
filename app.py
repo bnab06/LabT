@@ -529,39 +529,17 @@ def linearity_panel():
 # S/N
 # -------------------------
 
-# -*- coding: utf-8 -*-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from datetime import datetime
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks
-from PIL import Image
-from fpdf import FPDF
-import io
-import os
-import re
-
-# --- Translation placeholder ---
-def t(key):
-    # Simple placeholder for translation
-    return key
-
-LOGO_FILE = "logo.png"  # replace with your logo path
-
-# --- Main App ---
-def main_app():
-    st.title("LabT S/N Panel")
-
-    # Session example: store slope
-    if "linear_slope" not in st.session_state:
-        st.session_state.linear_slope = 0.0
-
-    sn_panel_full()
-
-# --- S/N Panel ---
 def sn_panel_full():
+    import re, io, os
+    from PIL import Image
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from datetime import datetime
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+    from fpdf import FPDF
+
     st.header(t("sn"))
     st.write(t("digitize_info"))
 
@@ -572,7 +550,7 @@ def sn_panel_full():
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
-        slope_auto = float(st.session_state.get("linear_slope",0.0) or 0.0)
+        slope_auto = float(st.session_state.get("linear_slope", 0.0) or 0.0)
         slope_input = st.number_input("Slope", value=slope_auto, format="%.6f")
         unit = st.selectbox(t("unit"), ["µg/mL","mg/mL","ng/mL"], index=0)
         sn_classic = H / h if h != 0 else float("nan")
@@ -588,7 +566,7 @@ def sn_panel_full():
             except: pass
         return
 
-    # --- Helper: OCR + projection fallback ---
+    # --- Helper: OCR + fallback ---
     def extract_xy_from_image_pytesseract(image):
         import pytesseract
         text = pytesseract.image_to_string(image)
@@ -606,7 +584,6 @@ def sn_panel_full():
         if data:
             df_ocr = pd.DataFrame(data, columns=["X","Y"])
             return df_ocr.sort_values("X").reset_index(drop=True)
-        # fallback
         arr = np.array(image.convert("L"))
         signal = arr.max(axis=0).astype(float)
         signal_smooth = gaussian_filter1d(signal, sigma=1)
@@ -743,13 +720,6 @@ def sn_panel_full():
         pdf.image(buf, x=10, y=None, w=180)
         pdf_bytes = pdf.output(dest='S').encode('latin1')
         st.download_button("Download S/N PDF", pdf_bytes, "sn_report.pdf", "application/pdf")
-
-# --- Run App ---
-def run():
-    main_app()
-
-if __name__ == "__main__":
-    run()
 
 # -------------------------
 # Main app (tabs at top, modern)
