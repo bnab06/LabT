@@ -530,191 +530,165 @@ def linearity_panel():
 # -------------------------
 
 def sn_panel_full():
-    import io, os, re
+    import io, os
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from datetime import datetime
     from scipy.ndimage import gaussian_filter1d
     from scipy.signal import find_peaks
     from PIL import Image
     import streamlit as st
+    from datetime import datetime
+    from fpdf import FPDF
 
-    st.header("S/N Calculation")
+    st.header("S/N Panel")
+
     uploaded = st.file_uploader("Upload chromatogram", type=["csv","png","jpg","jpeg","pdf"])
-    
-    # --- Manual mode ---
     if uploaded is None:
-        st.info("Manual mode: enter H, h and slope")
-        H = st.number_input("H (peak height)", value=0.0, format="%.6f")
-        h = st.number_input("h (noise)", value=0.0, format="%.6f")
-        slope = st.number_input("Slope", value=0.0, format="%.6f")
-        sn_classic = H / h if h != 0 else float("nan")
-        sn_usp = 2*H/h if h != 0 else float("nan")
-        st.write(f"S/N Classic: {sn_classic:.4f}")
-        st.write(f"S/N USP: {sn_usp:.4f}")
+        st.info("Upload a CSV, image, or PDF to start.")
         return
 
-    name = uploaded.name.lower()
     df = None
+    name = uploaded.name.lower()
 
     # --- CSV ---
     if name.endswith(".csv"):
-        uploaded.seek(0)
         try:
-            df0 = pd.read_csv(uploaded)
-        except:
             uploaded.seek(0)
-            df0 = pd.read_csv(uploaded, sep=";", engine="python")
-        if df0.shape[1] < 2:
-            st.error("CSV must have at least 2 columns")
+            try:
+                df0 = pd.read_csv(uploaded)
+            except:
+                uploaded.seek(0)
+                df0 = pd.read_csv(uploaded, sep=";", engine="python")
+            if df0.shape[1]<2:
+                st.error("CSV must have at least two columns")
+                return
+            df = df0.iloc[:, :2].copy()
+            df.columns = ["X","Y"]
+            df["X"] = pd.to_numeric(df["X"], errors="coerce")
+            df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
+        except Exception as e:
+            st.error(f"CSV error: {e}")
             return
-        df = df0.iloc[:, :2].copy()
-        df.columns = ["X","Y"]
-        df["X"] = pd.to_numeric(df["X"], errors="coerce")
-        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-        df = df.dropna().reset_index(drop=True)
-        st.dataframe(df.head(50))
 
-    # --- IMAGE / PDF ---
-    elif name.endswith((".png","jpg","jpeg","pdf")):
+    # --- IMAGE ---
+    elif name.endswith((".png",".jpg",".jpeg")):
         try:
             uploaded.seek(0)
-            if name.endswith(".pdf"):
-                # Try pdf2image first
-                try:
-                    from pdf2image import convert_from_bytes
-                    pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
-                    orig_image = pages[0]
-                except ImportError:
-                    # fallback: use PyMuPDF
-                    try:
-                        import fitz
-                        doc = fitz.open(stream=uploaded.read(), filetype="pdf")
-                        page = doc.load_page(0)
-                        pix = page.get_pixmap()
-                        img_bytes = pix.tobytes("png")
-                        orig_image = Image.open(io.BytesIO(img_bytes))
-                    except ImportError:
-                        st.error("PDF processing requires either 'pdf2image' + Poppler or 'PyMuPDF'.")
-                        return
-            else:
-                orig_image = Image.open(uploaded).convert("RGB")
-
-            st.image(orig_image, use_column_width=True)
-            arr = np.array(orig_image.convert("L"))
-            y_signal = arr.max(axis=0).astype(float)
-            y_signal = gaussian_filter1d(y_signal, sigma=1)
+            img = Image.open(uploaded).convert("L")
+            arr = np.array(img)
+            y_signal = gaussian_filter1d(arr.max(axis=0).astype(float), sigma=1)
             df = pd.DataFrame({"X": np.arange(len(y_signal)), "Y": y_signal})
         except Exception as e:
-            st.error(f"Image/PDF processing failed: {e}")
+            st.error(f"Image error: {e}")
             return
-    else:
-        st.error("Unsupported file type")
+
+    # --- PDF ---
+    elif name.endswith(".pdf"):
+        uploaded.seek(0)
+        img = None
+        try:
+            from pdf2image import convert_from_bytes
+            try:
+                pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
+                img = pages[0].convert("L")
+            except Exception as e:
+                st.warning(f"PDF conversion with pdf2image failed: {e}. Trying PIL fallback.")
+                uploaded.seek(0)
+                img = Image.open(uploaded).convert("L")
+        except ImportError:
+            st.warning("pdf2image not installed. Using PIL fallback.")
+            try:
+                img = Image.open(uploaded).convert("L")
+            except Exception as e:
+                st.error(f"Cannot open PDF as image: {e}")
+                return
+        arr = np.array(img)
+        y_signal = gaussian_filter1d(arr.max(axis=0).astype(float), sigma=1)
+        df = pd.DataFrame({"X": np.arange(len(y_signal)), "Y": y_signal})
+
+    if df is None or df.empty:
+        st.warning("No valid data detected.")
         return
 
-    if df.empty:
-        st.warning("No valid data detected")
-        return
+    df = df.dropna().sort_values("X").reset_index(drop=True)
 
     # --- Noise region selection ---
-    st.subheader("Select noise region (X axis)")
+    st.subheader("Select background noise region (X-axis)")
     x_min, x_max = float(df["X"].min()), float(df["X"].max())
+    default_start = x_min + 0.05*(x_max-x_min)
+    default_end = x_min + 0.2*(x_max-x_min)
     if x_min == x_max:
-        st.warning("Signal flat or OCR invalid, using artificial X range")
-        x_min, x_max = 0, len(df)-1
+        st.warning("Signal flat or OCR invalid. Using artificial X range.")
+        x_min, x_max = 0.0, 100.0
+        default_start, default_end = 0.0, 20.0
 
-    default_start = x_min + 0.25*(x_max-x_min)
-    default_end = x_min + 0.75*(x_max-x_min)
+    start, end = st.slider("Select X range for noise", min_value=float(x_min), max_value=float(x_max),
+                           value=(float(default_start), float(default_end)))
+    noise_region = df[(df["X"]>=start) & (df["X"]<=end)]
+    if len(noise_region)<2:
+        st.warning("Region too small for noise calculation. Using full signal for noise.")
+        noise_region = df
 
-    try:
-        start, end = st.slider("Noise region X range",
-                               min_value=float(x_min),
-                               max_value=float(x_max),
-                               value=(float(default_start), float(default_end)))
-    except:
-        start, end = x_min, x_max
+    # --- Noise calculation ---
+    h_auto = float(noise_region["Y"].std(ddof=0)) or 1e-12
 
-    region = df[(df["X"]>=start)&(df["X"]<=end)]
-    if len(region) < 2:
-        st.warning("Region too small for reliable noise calculation. Using full signal")
-        region = df
+    # --- Peak detection ---
+    st.subheader("Automatic peak detection")
+    height_factor = st.slider("Height factor (baseline + factor*noise)", 0.0, 10.0, 3.0, 0.1)
+    distance = st.number_input("Minimum distance between peaks (samples)", value=5, min_value=1)
+    threshold = noise_region["Y"].mean() + height_factor*h_auto
 
-    baseline = float(region["Y"].mean())
-    noise_std = float(region["Y"].std(ddof=0)) or 1e-12
-
-    # --- Peak detection on full signal ---
-    st.subheader("Peak detection")
-    height_factor = st.slider("Height factor (threshold = baseline + factor*σ)", 0.0, 10.0, 3.0, step=0.1)
-    threshold = baseline + height_factor*noise_std
-    y_all = df["Y"].values
-
-    peaks_idx, props = find_peaks(y_all, height=threshold)
-    if len(peaks_idx) == 0:
-        # Take maximum as fallback
-        peaks_idx = np.array([np.argmax(y_all)])
+    peaks_idx, _ = find_peaks(df["Y"].values, height=threshold, distance=int(distance))
+    if len(peaks_idx)==0:
+        st.warning("No peaks detected automatically. Using maximum value.")
+        peak_idx = np.argmax(df["Y"].values)
+        peaks_idx = np.array([peak_idx])
 
     peaks_x = df["X"].values[peaks_idx]
-    peaks_y = y_all[peaks_idx]
+    peaks_y = df["Y"].values[peaks_idx]
 
-    # Allow user to choose peak if multiple
-    if len(peaks_idx) > 1:
-        st.info("Multiple peaks detected. Select the peak of interest:")
-        options = [f"X={x:.2f}, Y={y:.2f}" for x,y in zip(peaks_x, peaks_y)]
-        selected = st.selectbox("Choose peak", options)
-        sel_idx = options.index(selected)
-        peak_val = peaks_y[sel_idx]
-        peak_x = peaks_x[sel_idx]
+    # --- Select main peak ---
+    st.subheader("Select main peak")
+    peak_options = {f"Peak at X={x:.2f}, Y={y:.2f}": i for i, (x,y) in enumerate(zip(peaks_x, peaks_y))}
+    selected_peak_key = st.selectbox("Choose main peak", list(peak_options.keys()))
+    main_peak_idx = peak_options[selected_peak_key]
+    H = peaks_y[main_peak_idx]
+    peak_x = peaks_x[main_peak_idx]
+
+    # --- Width at half-height W ---
+    half_height = H/2
+    indices = np.where(df["Y"].values >= half_height)[0]
+    if len(indices)>1:
+        W = df["X"].values[indices[-1]] - df["X"].values[indices[0]]
+        W_start, W_end = df["X"].values[indices[0]], df["X"].values[indices[-1]]
     else:
-        peak_val = peaks_y[0]
-        peak_x = peaks_x[0]
-
-    height = peak_val - baseline
+        W = np.nan
+        W_start, W_end = np.nan, np.nan
 
     # --- Plot ---
-    fig, ax = plt.subplots(figsize=(10,3))
+    fig, ax = plt.subplots(figsize=(10,4))
     ax.plot(df["X"], df["Y"], label="Chromatogram")
-    ax.axvspan(start, end, alpha=0.25, color="yellow", label="Noise region")
-    ax.plot(peak_x, peak_val, "r^", label="Selected peak")
-    ax.hlines(baseline, xmin=df["X"].min(), xmax=df["X"].max(), linestyles="--", label="Baseline")
+    ax.axvspan(start, end, color="orange", alpha=0.2, label=f"Noise region")
+    ax.plot(peaks_x, peaks_y, "r^", label="Detected peaks")
+    ax.plot(peak_x, H, "bs", markersize=10, label=f"Main peak H={H:.2f}")
+    if not np.isnan(W):
+        ax.hlines(H/2, xmin=W_start, xmax=W_end, colors="green", linestyles="--", label=f"W={W:.2f}")
+        ax.annotate(f"W={W:.2f}", xy=((W_start+W_end)/2,H/2), xytext=(0,10),
+                    textcoords="offset points", ha='center', color="green")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
     ax.legend()
     st.pyplot(fig)
 
     # --- S/N calculation ---
-    sn_classic = peak_val / noise_std
-    sn_usp = height / noise_std
+    sn_classic = H / h_auto
+    sn_usp = 2*H / h_auto
     st.write(f"S/N Classic: {sn_classic:.4f}")
     st.write(f"S/N USP: {sn_usp:.4f}")
-
-    # --- LOD/LOQ ---
-    slope_input = st.number_input("Slope (manual if needed)", value=0.0, format="%.6f")
-    if slope_input > 0:
-        lod = 3.3*noise_std/slope_input
-        loq = 10*noise_std/slope_input
-        st.write(f"LOD: {lod:.6f}")
-        st.write(f"LOQ: {loq:.6f}")
-
-    # --- Export CSV ---
-    csv_buf = io.StringIO()
-    region.to_csv(csv_buf, index=False)
-    st.download_button("Download CSV (noise region)", csv_buf.getvalue(), "sn_region.csv", "text/csv")
-
-    # --- Export PDF ---
-    if st.button("Export S/N PDF"):
-        from fpdf import FPDF
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        buf.seek(0)
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(0,10,f"File: {uploaded.name}", ln=1)
-        pdf.cell(0,10,f"Date: {datetime.now():%Y-%m-%d %H:%M:%S}", ln=1)
-        pdf.cell(0,10,f"S/N Classic: {sn_classic:.4f}", ln=1)
-        pdf.cell(0,10,f"S/N USP: {sn_usp:.4f}", ln=1)
-        pdf.image(buf, x=10, y=60, w=180)
-        pdf_buf = pdf.output(dest='S').encode('latin1')
-        st.download_button("Download PDF", pdf_buf, "sn_report.pdf", "application/pdf")
+    st.write(f"Peak height H: {H:.4f}")
+    st.write(f"Noise std h: {h_auto:.4f}")
+    st.write(f"Width at half-height W: {W:.4f}")
 
 # -------------------------
 # Main app (tabs at top, modern)
