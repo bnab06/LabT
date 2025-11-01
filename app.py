@@ -274,13 +274,21 @@ def header_area():
 def login_screen():
     header_area()
     st.write("")
-    lang = st.selectbox("Language / Langue", ["FR","EN"], 
-                        index=0 if st.session_state.lang=="FR" else 1, 
-                        key="login_lang")
+
+    # Langue
+    if "lang" not in st.session_state:
+        st.session_state.lang = "FR"
+    lang = st.selectbox(
+        "Language / Langue",
+        ["FR", "EN"],
+        index=0 if st.session_state.lang == "FR" else 1,
+        key="login_lang"
+    )
     st.session_state.lang = lang
 
+    # Formulaire de login
     with st.form("login_form", clear_on_submit=False):
-        cols = st.columns([2,1])
+        cols = st.columns([2, 1])
         with cols[0]:
             username = st.text_input(t("username"), key="username_login")
         with cols[1]:
@@ -295,11 +303,21 @@ def login_screen():
         matched = find_user_key(uname)
         if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
-            st.session_state.role = USERS[matched].get("role","user")
-            return  # login successful
+            st.session_state.role = USERS[matched].get("role", "user")
+            st.success(f"{uname} {t('logged_in')}")
+            st.stop()
         else:
             st.error(t("invalid"))
 
+    # Déconnexion (si connecté)
+    if st.session_state.get("user"):
+        if st.button(t("logout")):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.success(t("logged_out"))
+            st.stop()
+
+    # Footer
     st.markdown(
         "<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>"
         f"{t('powered')}"
@@ -307,7 +325,7 @@ def login_screen():
         unsafe_allow_html=True,
     )
 
-    # password change outside session
+    # Changement de mot de passe (même si pas connecté)
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
@@ -324,12 +342,15 @@ def login_screen():
                     save_users(USERS)
                     st.success(f"Password updated for {found}")
 
+
 # -------------------------
 # Admin panel (users dropdown)
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
     col_left, col_right = st.columns([2,1])
+
+    # Liste utilisateurs existants
     with col_left:
         st.subheader("Existing users")
         users_list = list(USERS.keys())
@@ -358,6 +379,7 @@ def admin_panel():
                     st.success(f"{sel} deleted")
                     st.experimental_rerun()
 
+    # Ajouter un nouvel utilisateur
     with col_right:
         st.subheader(t("add_user"))
         with st.form("form_add_user"):
@@ -369,7 +391,6 @@ def admin_panel():
             if not new_user.strip() or not new_pass.strip():
                 st.warning("Enter username and password")
             else:
-                # case-insensitive check
                 if find_user_key(new_user) is not None:
                     st.warning("User exists")
                 else:
