@@ -272,11 +272,27 @@ def header_area():
 # Login screen
 # -------------------------
 def login_screen():
+    # Initialize session_state variables safely
+    if "lang" not in st.session_state:
+        st.session_state.lang = "FR"
+    if "user" not in st.session_state:
+        st.session_state.user = None
+    if "role" not in st.session_state:
+        st.session_state.role = "user"
+
     header_area()
     st.write("")
-    lang = st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1, key="login_lang")
+
+    # Language selector
+    lang = st.selectbox(
+        "Language / Langue",
+        ["FR","EN"],
+        index=0 if st.session_state.lang=="FR" else 1,
+        key="login_lang"
+    )
     st.session_state.lang = lang
 
+    # Login form
     with st.form("login_form", clear_on_submit=False):
         cols = st.columns([2,1])
         with cols[0]:
@@ -285,6 +301,7 @@ def login_screen():
             password = st.text_input(t("password"), type="password", key="password_login")
         submitted = st.form_submit_button(t("login"))
 
+    # Handle login
     if submitted:
         uname = (username or "").strip()
         if not uname:
@@ -294,10 +311,12 @@ def login_screen():
         if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
             st.session_state.role = USERS[matched].get("role","user")
-            return
+            st.success(t("welcome") + f", {matched}")
+            st.experimental_rerun()  # Prevent double submission
         else:
             st.error(t("invalid"))
 
+    # Footer
     st.markdown(
         "<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>"
         f"{t('powered')}"
@@ -305,7 +324,7 @@ def login_screen():
         unsafe_allow_html=True,
     )
 
-    # password change outside session
+    # Password change outside session
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
