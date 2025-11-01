@@ -530,474 +530,147 @@ def linearity_panel():
 # -------------------------
 
 # ============================
-# Module S/N — Version MODERNE (coller dans LabT)
-# ============================
+import streamlit as st
+import numpy as np
+import pandas as pd
+from scipy.signal import find_peaks
+from PIL import Image
+
+try:
+    from pdf2image import convert_from_bytes
+    PDF_SUPPORT = True
+except:
+    PDF_SUPPORT = False
+
+# --- Fonction principale S/N ACE ---
 def sn_panel_full():
-    """
-    Module S/N moderne — à coller dans LabT.
-    - Bilingue (utilise st.session_state.lang ; défaut 'fr')
-    - Ne s'affiche que si st.session_state.get('authenticated') is True (sécurité)
-    - Support CSV / PNG / JPG / PDF (pdf2image optional)
-    - OCR optional (pytesseract) ; fallback projection
-    - Détection de tous les pics ; pic principal = max Y
-    - Zone X utilisée uniquement pour calcul du bruit
-    - Plotly interactif (click selection si streamlit_plotly_events present)
-    - Export CSV (toujours) et PDF (si fpdf present)
-    """
-
-    # ---- imports locaux (robustness) ----
-    import io, os, tempfile
-    from datetime import datetime
-    import numpy as np
-    import pandas as pd
-
-    import matplotlib.pyplot as plt
-    from scipy.ndimage import gaussian_filter1d
-    from scipy.signal import find_peaks, peak_widths
-
-    # optional libs
-    try:
-        from PIL import Image
-    except Exception:
-        Image = None
-
-    try:
-        from pdf2image import convert_from_bytes
-        PDF2IMG = True
-    except Exception:
-        convert_from_bytes = None
-        PDF2IMG = False
-
-    try:
-        import pytesseract
-        OCR_AVAILABLE = True
-    except Exception:
-        pytesseract = None
-        OCR_AVAILABLE = False
-
-    try:
-        from fpdf import FPDF
-        FPDF_AVAILABLE = True
-    except Exception:
-        FPDF_AVAILABLE = False
-
-    try:
-        from streamlit_plotly_events import plotly_events
-        PLOTLY_EVENTS = True
-    except Exception:
-        plotly_events = None
-        PLOTLY_EVENTS = False
-
-    try:
-        import plotly.graph_objects as go
-        PLOTLY_AVAILABLE = True
-    except Exception:
-        go = None
-        PLOTLY_AVAILABLE = False
-
-    # ---- session / auth guards ----
-    if "lang" not in st.session_state:
-        st.session_state.lang = "fr"
+    # --- Langue ---
     lang = st.session_state.get("lang", "fr")
+    _ = lambda fr, en: fr if lang == "fr" else en
 
-    # If your app uses another key for auth change this line accordingly.
-    if not st.session_state.get("authenticated", False):
-        st.info("🔒 Please log in / Veuillez vous connecter")
+    st.title(_("Analyse Signal/Bruit ACE", "ACE Signal-to-Noise Analysis"))
+
+    uploaded_file = st.file_uploader(_("📤 Importer chromatogramme (.csv, .png, .jpg, .pdf)",
+                                      "📤 Upload chromatogram (.csv, .png, .jpg, .pdf)"), accept_multiple_files=False)
+    if not uploaded_file:
+        st.info(_("Importer un fichier pour commencer", "Upload a file to start"))
         return
 
-    # ---- translations ----
-    TRANSL = {
-        "fr": {
-            "title": "S/N — Module (moderne)",
-            "upload": "Télécharger chromatogramme (CSV / PNG / JPG / PDF)",
-            "smoothing": "Lissage (sigma)",
-            "noise_region": "Zone bruit (X)",
-            "instructions": "Cliquez sur un pic dans le graphique pour le sélectionner (optionnel).",
-            "no_signal": "Aucun signal valide détecté.",
-            "peaks_table": "Table des pics détectés",
-            "export_csv": "Télécharger CSV des pics",
-            "export_pdf": "Télécharger rapport PDF",
-            "sn_classic": "S/N Classique",
-            "sn_usp": "S/N USP",
-            "baseline": "Ligne de base",
-            "half_height": "Demi-hauteur",
-            "selected_peak": "Pic sélectionné",
-        },
-        "en": {
-            "title": "S/N — Modern module",
-            "upload": "Upload chromatogram (CSV / PNG / JPG / PDF)",
-            "smoothing": "Smoothing (sigma)",
-            "noise_region": "Noise region (X)",
-            "instructions": "Click a peak on the chart to select it (optional).",
-            "no_signal": "No valid signal detected.",
-            "peaks_table": "Detected peaks table",
-            "export_csv": "Download peaks CSV",
-            "export_pdf": "Download PDF report",
-            "sn_classic": "Classic S/N",
-            "sn_usp": "USP S/N",
-            "baseline": "Baseline",
-            "half_height": "Half height",
-            "selected_peak": "Selected peak",
-        }
-    }
-    T = TRANSL.get(lang, TRANSL["fr"])
+    x = y = None
+    image_preview = None
+    file_type = uploaded_file.name.lower().split(".")[-1]
 
-    # ---- UI header ----
-    st.header(T["title"])
-    st.caption(T["instructions"])
-
-    # ---- left column: options & upload ----
-    col_opts, col_vis = st.columns([1, 2])
-
-    with col_opts:
-        uploaded = st.file_uploader(T["upload"], type=["csv", "png", "jpg", "jpeg", "pdf"])
-        sigma = st.slider(T["smoothing"], 0.0, 5.0, 1.0, step=0.1)
-        st.markdown("---")
-        st.write(T["noise_region"])
-        # placeholders: real slider created after data load
-        placeholder_noise = st.empty()
-        st.markdown("---")
-        st.write("Exports & tools:")
-        col_csv_btn = st.empty()
-        col_pdf_btn = st.empty()
-        st.write("- OCR optional; PDF conversion optional.")
-        st.write(f"- plotly click events available: {PLOTLY_EVENTS}")
-        st.write(f"- pdf2image available: {PDF2IMG}")
-        st.write(f"- fpdf available: {FPDF_AVAILABLE}")
-
-    # ---- main visualization area ----
-    with col_vis:
-        if uploaded is None:
-            st.info(T["upload"])
-            return
-
-        # read file
-        df = None
-        orig_image = None
+    # --- CSV ---
+    if file_type == "csv":
         try:
-            name = uploaded.name.lower()
-            if name.endswith(".csv"):
-                uploaded.seek(0)
-                df = pd.read_csv(uploaded)
-                # allow common two-column formats
-                cols_low = [c.lower() for c in df.columns]
-                if "time" in cols_low and "signal" in cols_low:
-                    df = df.rename(columns={df.columns[cols_low.index("time")]: "X",
-                                             df.columns[cols_low.index("signal")]: "Y"})
-                else:
-                    df = df.iloc[:, :2].copy()
-                    df.columns = ["X", "Y"]
-                df["X"] = pd.to_numeric(df["X"], errors="coerce")
-                df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-                df = df.dropna().sort_values("X").reset_index(drop=True)
-            elif name.endswith((".png", ".jpg", ".jpeg")):
-                uploaded.seek(0)
-                if Image is None:
-                    st.error("Pillow missing; cannot read image.")
-                    return
-                orig_image = Image.open(uploaded).convert("RGB")
-                st.subheader(T["title"])
-                st.image(orig_image, use_column_width=True)
-            elif name.endswith(".pdf"):
-                uploaded.seek(0)
-                if PDF2IMG:
-                    try:
-                        pages = convert_from_bytes(uploaded.read(), dpi=200, first_page=1, last_page=1)
-                        orig_image = pages[0].convert("RGB")
-                    except Exception:
-                        uploaded.seek(0)
-                        try:
-                            orig_image = Image.open(io.BytesIO(uploaded.read())).convert("RGB")
-                        except Exception as e:
-                            st.error("PDF reading failed.")
-                            return
-                else:
-                    # fallback: try reading via PIL
-                    try:
-                        uploaded.seek(0)
-                        orig_image = Image.open(io.BytesIO(uploaded.read())).convert("RGB")
-                    except Exception:
-                        st.error("PDF conversion not available; install pdf2image/poppler.")
-                        return
-                st.image(orig_image, use_column_width=True)
+            df = pd.read_csv(uploaded_file)
+            df.columns = [c.strip().lower() for c in df.columns]
+            if "time" in df.columns and "signal" in df.columns:
+                x = df["time"].values
+                y = df["signal"].values
             else:
-                st.error("Unsupported file type.")
+                st.error(_("CSV doit contenir 'Time' et 'Signal'", "CSV must contain 'Time' and 'Signal'"))
                 return
         except Exception as e:
-            st.error(f"File read error: {e}")
+            st.error(f"{_('Erreur CSV', 'CSV Error')}: {e}")
             return
 
-        # if image but no dataframe, try OCR or projection
-        if (df is None) and (orig_image is not None):
-            # try OCR (two-column numbers), else vertical projection
-            try:
-                if OCR_AVAILABLE:
-                    txt = pytesseract.image_to_string(orig_image)
-                    # simple parsing: look for two numeric columns per line
-                    data = []
-                    for ln in txt.splitlines():
-                        parts = ln.replace(",", ".").split()
-                        nums = []
-                        for p in parts:
-                            try:
-                                v = float(p)
-                                nums.append(v)
-                            except:
-                                pass
-                        if len(nums) >= 2:
-                            data.append((nums[0], nums[1]))
-                    if len(data) >= 2:
-                        df = pd.DataFrame(data, columns=["X", "Y"]).sort_values("X").reset_index(drop=True)
-                        st.success("OCR: numeric table extracted.")
-                # fallback
-                if df is None:
-                    arr = np.array(orig_image.convert("L"))
-                    signal = arr.max(axis=0).astype(float)
-                    # invert pixel projection so peaks point up
-                    signal = signal.max() - signal
-                    signal = gaussian_filter1d(signal, sigma=1.0)
-                    df = pd.DataFrame({"X": np.arange(len(signal)), "Y": signal})
-                    st.info("OCR failed or incomplete — using vertical projection.")
-            except Exception as e:
-                st.warning(f"OCR/projection error: {e}")
-                arr = np.array(orig_image.convert("L"))
-                signal = arr.max(axis=0).astype(float)
-                signal = signal.max() - signal
-                signal = gaussian_filter1d(signal, sigma=1.0)
-                df = pd.DataFrame({"X": np.arange(len(signal)), "Y": signal})
-
-        # final check
-        if df is None or df.empty:
-            st.warning(T["no_signal"])
+    # --- Image ---
+    elif file_type in ["png", "jpg", "jpeg"]:
+        try:
+            image_preview = Image.open(uploaded_file).convert("L")
+            y = np.mean(np.array(image_preview), axis=1)
+            if y[0] < y[-1]:
+                y = y[::-1]
+            x = np.arange(len(y))
+            st.image(image_preview, caption=_("Chromatogramme importé", "Imported chromatogram"), use_column_width=True)
+        except Exception as e:
+            st.error(f"{_('Erreur image', 'Image error')}: {e}")
             return
 
-        # ensure numeric sorted
-        df = df.dropna().sort_values("X").reset_index(drop=True)
-        x = df["X"].values
-        y = df["Y"].values
+    # --- PDF ---
+    elif file_type == "pdf":
+        if not PDF_SUPPORT:
+            st.warning(_("Conversion PDF non disponible (installer pdf2image et poppler)", 
+                         "PDF conversion unavailable (install pdf2image and poppler)"))
+            return
+        try:
+            pages = convert_from_bytes(uploaded_file.read())
+            image_preview = pages[0].convert("L")
+            y = np.mean(np.array(image_preview), axis=1)
+            if y[0] < y[-1]:
+                y = y[::-1]
+            x = np.arange(len(y))
+            st.image(image_preview, caption=_("Chromatogramme extrait (page 1)", "Extracted chromatogram (page 1)"), use_column_width=True)
+        except Exception as e:
+            st.error(f"{_('Erreur PDF', 'PDF error')}: {e}")
+            return
+    else:
+        st.error(_("Format non supporté", "Unsupported file format"))
+        return
 
-        # auto-detect & correct inverted chromatogram (peaks downward)
-        # heuristic: if median is higher than mean and peaks are negative relative to baseline
-        if np.mean(y) < np.median(y) and np.abs(np.min(y)) > np.abs(np.max(y)):
-            y = -y
-            df["Y"] = y
+    # --- Zone bruit X ---
+    x_min, x_max = st.slider(_("Sélectionner zone bruit X", "Select noise X region"),
+                             float(x.min()), float(x.max()), (float(x.min()), float(x.max())))
+    noise_mask = (x >= x_min) & (x <= x_max)
+    noise_data = y[noise_mask] if np.any(noise_mask) else y
 
-        # smoothing
-        df["Y_smooth"] = gaussian_filter1d(df["Y"].values, sigma=float(sigma))
+    # --- Détection pic principal ---
+    y_norm = (y - np.min(y)) / (np.max(y) - np.min(y) + 1e-9)
+    peaks, props = find_peaks(y_norm, height=0.1, distance=len(y)//50)
 
-        # build noise slider now that we have X range
-        x_min, x_max = float(df["X"].min()), float(df["X"].max())
-        # replace placeholder with real slider
-        noise_start, noise_end = placeholder_noise.slider(
-            "", min_value=float(x_min), max_value=float(x_max),
-            value=(x_min + 0.25*(x_max - x_min), x_min + 0.75*(x_max - x_min)),
-            step=float(max((x_max - x_min)/1000.0, 1e-12))
-        )
+    if len(peaks) == 0:
+        st.warning(_("Aucun pic détecté", "No peak detected"))
+        return
 
-        # compute noise baseline and std from selected noise region (if region too small fallback to global)
-        region_mask = (df["X"] >= noise_start) & (df["X"] <= noise_end)
-        if df[region_mask].shape[0] < 3:
-            noise_region_df = df.copy()
-        else:
-            noise_region_df = df[region_mask].copy()
-        baseline = float(noise_region_df["Y_smooth"].mean())
-        noise_std = float(noise_region_df["Y_smooth"].std(ddof=0) or 1e-12)
+    main_peak = peaks[np.argmax(props["peak_heights"])]
+    H = props["peak_heights"].max()
+    baseline = np.median(noise_data)
+    h = np.std(noise_data)
+    half_height = baseline + (H - baseline)/2
+    W = np.sum(y_norm > half_height)
+    tR = x[main_peak] if main_peak < len(x) else None
 
-        # detect peaks on smoothed Y (use adaptive prominence/distance)
-        global_amp = df["Y_smooth"].max() - df["Y_smooth"].min()
-        adaptive_prom = max(0.5*noise_std, 0.01*global_amp)
-        adaptive_dist = max(1, int(len(df)//50))
-        peaks_idx, props = find_peaks(df["Y_smooth"].values, prominence=adaptive_prom, distance=adaptive_dist)
+    # --- S/N ---
+    sn_classic = H / h if h != 0 else np.nan
+    sn_usp = (2*H) / h if h != 0 else np.nan
 
-        # metrics per peak
-        metrics = []
-        for p in peaks_idx:
-            peak_y = float(df["Y_smooth"].iloc[p])
-            H = peak_y - baseline
-            widths_res = peak_widths(df["Y_smooth"].values, [p], rel_height=0.5)
-            width_samples = float(widths_res[0][0]) if len(widths_res[0])>0 else np.nan
-            dx = float(np.median(np.diff(df["X"].values))) if len(df)>1 else 1.0
-            W = width_samples * dx
-            SN_classic = H / noise_std if noise_std != 0 else float("nan")
-            SN_USP = 2*H / noise_std if noise_std != 0 else float("nan")
-            metrics.append({
-                "peak_index": int(p),
-                "retention_time": float(df["X"].iloc[p]),
-                "peak_value": peak_y,
-                "H": H,
-                "h": noise_std,
-                "W": W,
-                "S/N_classic": SN_classic,
-                "S/N_USP": SN_USP
-            })
+    # --- Graphique interactif ---
+    import plotly.graph_objects as go
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=x, y=y_norm, mode="lines", name=_("Chromatogramme normalisé", "Normalized chromatogram")))
+    fig.add_trace(go.Scatter(x=[x[main_peak]], y=[y_norm[main_peak]], mode="markers",
+                             marker=dict(color="red", size=10), name=_("Pic principal", "Main peak")))
+    fig.add_hline(y=baseline, line_dash="dash", line_color="gray", annotation_text=_("Ligne base / Baseline", "Baseline"))
+    fig.add_hline(y=half_height, line_dash="dash", line_color="orange", annotation_text=_("1/2 hauteur / Half-height", "Half-height"))
+    fig.update_layout(title=_("Détection pic et S/N", "Peak detection & S/N"),
+                      xaxis_title=_("Temps / Time"), yaxis_title=_("Signal normalisé / Normalized signal"))
+    st.plotly_chart(fig, use_container_width=True)
 
-        # if no peaks detected, use global maximum as single peak
-        if len(metrics) == 0:
-            p = int(np.argmax(df["Y_smooth"].values))
-            peak_y = float(df["Y_smooth"].iloc[p])
-            H = peak_y - baseline
-            widths_res = peak_widths(df["Y_smooth"].values, [p], rel_height=0.5)
-            width_samples = float(widths_res[0][0]) if len(widths_res[0])>0 else np.nan
-            dx = float(np.median(np.diff(df["X"].values))) if len(df)>1 else 1.0
-            W = width_samples * dx
-            SN_classic = H / noise_std if noise_std != 0 else float("nan")
-            SN_USP = 2*H / noise_std if noise_std != 0 else float("nan")
-            metrics.append({
-                "peak_index": int(p),
-                "retention_time": float(df["X"].iloc[p]),
-                "peak_value": peak_y,
-                "H": H,
-                "h": noise_std,
-                "W": W,
-                "S/N_classic": SN_classic,
-                "S/N_USP": SN_USP
-            })
+    # --- Résultats ---
+    st.subheader(_("Résultats S/N", "S/N Results"))
+    st.write(f"H : {H:.4f}")
+    st.write(f"h (bruit / noise) : {h:.4f}")
+    st.write(f"W (FWHM) : {W}")
+    if tR is not None:
+        st.write(f"tR (temps de rétention / retention time) : {tR}")
+    st.success(f"{_('S/N Classique', 'Classic S/N')} : {sn_classic:.4f}")
+    st.success(f"{_('S/N USP', 'USP S/N')} : {sn_usp:.4f}")
 
-        # sort metrics by H desc
-        metrics = sorted(metrics, key=lambda z: -z["H"])
+    # --- Historique ---
+    if "sn_history" not in st.session_state:
+        st.session_state.sn_history = []
+    st.session_state.sn_history.append({
+        "file": uploaded_file.name,
+        "H": H, "h": h, "W": W, "tR": tR,
+        "sn_classic": sn_classic, "sn_usp": sn_usp
+    })
+    st.subheader(_("Historique des calculs S/N", "S/N History"))
+    st.dataframe(pd.DataFrame(st.session_state.sn_history))
 
-        # display interactive chart (plotly if available otherwise matplotlib)
-        st.subheader("Chromatogram")
-        selected_peak_index = None
-
-        if PLOTLY_AVAILABLE:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=df["X"], y=df["Y_smooth"], mode="lines", name="Smoothed"))
-            # mark peaks
-            if len(metrics) > 0:
-                fig.add_trace(go.Scatter(
-                    x=[m["retention_time"] for m in metrics],
-                    y=[m["peak_value"] for m in metrics],
-                    mode="markers",
-                    marker=dict(color="red", size=8),
-                    name="Detected peaks"
-                ))
-            # noise region
-            fig.add_vrect(x0=noise_start, x1=noise_end, fillcolor="grey", opacity=0.2, line_width=0)
-            fig.update_yaxes(autorange="reversed")  # invert for chromatogram look
-            fig.update_layout(height=420, margin=dict(l=20,r=20,t=20,b=20), clickmode="event+select")
-
-            st_plot = st.plotly_chart(fig, use_container_width=True)
-
-            # try to get click events
-            if PLOTLY_EVENTS:
-                try:
-                    clicked = plotly_events(fig, click_event=True, select_event=False, override_height=420)
-                    if clicked:
-                        clicked_x = clicked[0].get("x")
-                        # find nearest df index
-                        selected_peak_index = int(np.argmin(np.abs(df["X"].values - clicked_x)))
-                except Exception:
-                    selected_peak_index = None
-        else:
-            # fallback matplotlib
-            figm, ax = plt.subplots(figsize=(10,3))
-            ax.plot(df["X"], df["Y_smooth"], label="Smoothed")
-            if len(metrics) > 0:
-                ax.plot([m["retention_time"] for m in metrics], [m["peak_value"] for m in metrics], "r^", label="Peaks")
-            ax.axvspan(noise_start, noise_end, color="grey", alpha=0.2)
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.invert_yaxis()
-            ax.legend()
-            st.pyplot(figm)
-            selected_peak_index = None
-
-        # peaks table & selection
-        st.subheader(T["peaks_table"])
-        dfm = pd.DataFrame(metrics)
-        if not dfm.empty:
-            # display top columns nicely
-            dfm_display = dfm[["retention_time","H","h","W","S/N_classic","S/N_USP"]].copy()
-            dfm_display = dfm_display.round(6)
-            sel = st.selectbox("Select peak (table)", options=dfm.index.tolist(),
-                               format_func=lambda i: f"#{i+1}  t={dfm.loc[i,'retention_time']:.6g}  H={dfm.loc[i,'H']:.6g}")
-            selected_peak_index = metrics[sel]["peak_index"]
-            st.dataframe(dfm_display, height=200)
-        else:
-            st.info(T["no_signal"])
-
-        # if still no selection, choose top H
-        if selected_peak_index is None:
-            selected_peak_index = metrics[0]["peak_index"]
-
-        # compute selected peak summary
-        sel_idx = int(selected_peak_index)
-        sel_ret = float(df["X"].iloc[sel_idx])
-        sel_peak = float(df["Y_smooth"].iloc[sel_idx])
-        sel_H = float(sel_peak - baseline)
-        widths_sel = peak_widths(df["Y_smooth"].values, [sel_idx], rel_height=0.5)
-        width_samples_sel = float(widths_sel[0][0]) if len(widths_sel[0])>0 else np.nan
-        dx = float(np.median(np.diff(df["X"].values))) if len(df)>1 else 1.0
-        sel_W = width_samples_sel * dx
-        sel_h = noise_std
-        sel_SN_classic = sel_H / sel_h if sel_h != 0 else float("nan")
-        sel_SN_USP = 2*sel_H / sel_h if sel_h != 0 else float("nan")
-
-        st.subheader(T["selected_peak"])
-        cols = st.columns(4)
-        cols[0].metric("tR", f"{sel_ret:.6g}")
-        cols[1].metric("H", f"{sel_H:.6g}")
-        cols[2].metric("h (σ)", f"{sel_h:.6g}")
-        cols[3].metric("W", f"{sel_W:.6g}")
-        st.write(f"{T['sn_classic']}: {sel_SN_classic:.6g}   |   {T['sn_usp']}: {sel_SN_USP:.6g}")
-
-        # export CSV always available
-        csv_buf = io.StringIO()
-        pd.DataFrame(metrics).to_csv(csv_buf, index=False)
-        csv_bytes = csv_buf.getvalue().encode("utf-8")
-        col_csv_btn.download_button(label=T["export_csv"], data=csv_bytes, file_name="sn_peaks.csv", mime="text/csv")
-
-        # export PDF when possible
-        if FPDF_AVAILABLE:
-            try:
-                # build a simple PDF with a matplotlib snapshot
-                # create figure snapshot
-                fig_tmp, ax_tmp = plt.subplots(figsize=(10,3))
-                ax_tmp.plot(df["X"], df["Y_smooth"], label="Smoothed")
-                ax_tmp.plot(df["X"].iloc[sel_idx], df["Y_smooth"].iloc[sel_idx], "r^", label="Selected peak")
-                ax_tmp.axvspan(noise_start, noise_end, alpha=0.2, color="grey")
-                ax_tmp.hlines([baseline, baseline + sel_H/2], xmin=df["X"].min(), xmax=df["X"].max(), linestyles="--", colors=["green","orange"])
-                ax_tmp.set_xlabel("X"); ax_tmp.set_ylabel("Y")
-                ax_tmp.invert_yaxis()
-                ax_tmp.legend()
-                tmp_png = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                fig_tmp.savefig(tmp_png.name, bbox_inches="tight")
-                plt.close(fig_tmp)
-
-                # create pdf
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", "B", 14)
-                pdf.cell(0, 8, "S/N Report", ln=True, align="C")
-                pdf.set_font("Arial", "", 10)
-                pdf.cell(0, 6, f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ln=True)
-                pdf.ln(4)
-                pdf.cell(0, 6, f"Selected peak tR: {sel_ret:.6g}", ln=True)
-                pdf.cell(0, 6, f"H: {sel_H:.6g}", ln=True)
-                pdf.cell(0, 6, f"h (σ): {sel_h:.6g}", ln=True)
-                pdf.cell(0, 6, f"W: {sel_W:.6g}", ln=True)
-                pdf.cell(0, 6, f"{T['sn_classic']}: {sel_SN_classic:.6g}", ln=True)
-                pdf.cell(0, 6, f"{T['sn_usp']}: {sel_SN_USP:.6g}", ln=True)
-                pdf.ln(6)
-                pdf.image(tmp_png.name, x=10, w=pdf.w - 20)
-                tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-                pdf.output(tmp_pdf.name)
-                with open(tmp_pdf.name, "rb") as f:
-                    pdf_bytes = f.read()
-                col_pdf_btn.download_button(label=T["export_pdf"], data=pdf_bytes, file_name="sn_report.pdf", mime="application/pdf")
-                # cleanup
-                try:
-                    os.unlink(tmp_png.name)
-                    os.unlink(tmp_pdf.name)
-                except Exception:
-                    pass
-            except Exception as e:
-                col_pdf_btn.write(f"PDF error: {e}")
-        else:
-            col_pdf_btn.write("fpdf not installed — PDF export unavailable.")
-
-# End of sn_panel_full
+# --- Lancement direct de l'app ---
+if __name__ == "__main__":
+    sn_panel_full()
 
 # -------------------------
 # Main app (tabs at top, modern)
