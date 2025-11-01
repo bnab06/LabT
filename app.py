@@ -529,18 +529,6 @@ def linearity_panel():
 # S/N
 # -------------------------
 
-import streamlit as st
-import re
-import io
-import os
-from PIL import Image
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime
-from scipy.ndimage import gaussian_filter1d
-from scipy.signal import find_peaks
-
 def sn_panel_full():
     """
     Full S/N panel with OCR/projection fallback, peak detection and PDF/CSV export.
@@ -550,6 +538,17 @@ def sn_panel_full():
     - height_factor and min_distance sliders to tune sensitivity
     - Adds detected peaks (position and height) to the exported PDF
     """
+    import re
+    import io
+    import os
+    from PIL import Image
+    import numpy as np
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from datetime import datetime
+    from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+
     st.header(t("sn"))
     st.write(t("digitize_info"))
 
@@ -562,7 +561,9 @@ def sn_panel_full():
         H = st.number_input("H (peak height)", value=0.0, format="%.6f", key="manual_H")
         h = st.number_input("h (noise)", value=0.0, format="%.6f", key="manual_h")
 
+        # Robust slope retrieval
         slope_auto_raw = st.session_state.get("linear_slope", 0.0)
+        slope_auto = 0.0
         if isinstance(slope_auto_raw, (int, float)):
             slope_auto = float(slope_auto_raw)
         elif isinstance(slope_auto_raw, str):
@@ -572,8 +573,6 @@ def sn_panel_full():
                 slope_auto = 0.0
         elif isinstance(slope_auto_raw, dict):
             slope_auto = float(slope_auto_raw.get("slope", 0.0))
-        else:
-            slope_auto = 0.0
 
         if slope_auto == 0.0:
             st.warning("⚠️ La pente (slope) n’est pas encore définie. Faites d'abord la linéarité.")
@@ -600,6 +599,7 @@ def sn_panel_full():
     name = uploaded.name.lower()
     df = None
 
+    # Helper: improved OCR with projection fallback
     def extract_xy_from_image_pytesseract(image):
         import pytesseract
         text = pytesseract.image_to_string(image)
@@ -619,6 +619,7 @@ def sn_panel_full():
             df_ocr = pd.DataFrame(data, columns=["X", "Y"])
             return df_ocr.sort_values("X").reset_index(drop=True)
 
+        # OCR fail → use vertical projection
         arr = np.array(image.convert("L"))
         signal = arr.max(axis=0).astype(float)
         signal_smooth = gaussian_filter1d(signal, sigma=1)
@@ -693,13 +694,21 @@ def sn_panel_full():
     # --- Safe region selection slider ---
     st.subheader(t("select_region"))
     x_min, x_max = float(df["X"].min()), float(df["X"].max())
+
     if x_min == x_max:
-        st.error("❌ Impossible de créer le slider : les valeurs X sont identiques (signal plat ou OCR invalide).")
-        return
+        st.warning("⚠️ Signal plat ou OCR invalide : les valeurs X sont identiques. Le slider sera remplacé par un intervalle artificiel.")
+        epsilon = 1e-3
+        x_min, x_max = x_min - epsilon, x_max + epsilon
 
     default_start = x_min + 0.25 * (x_max - x_min)
     default_end = x_min + 0.75 * (x_max - x_min)
-    start, end = st.slider("Select X range", min_value=x_min, max_value=x_max, value=(default_start, default_end))
+
+    start, end = st.slider(
+        "Select X range",
+        min_value=float(x_min),
+        max_value=float(x_max),
+        value=(float(default_start), float(default_end))
+    )
 
     region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
     if region.shape[0] < 2:
@@ -719,6 +728,7 @@ def sn_panel_full():
     baseline = float(region["Y"].mean())
     height = peak_val - baseline
     noise_std = float(region["Y"].std(ddof=0)) or 1e-12
+
     threshold = baseline + height_factor * noise_std
     y_region = region["Y"].values
 
@@ -770,6 +780,7 @@ def sn_panel_full():
         buf = io.BytesIO()
         fig.savefig(buf, format="png", bbox_inches="tight")
         buf.seek(0)
+
         lines = [
             f"File: {uploaded.name}",
             f"User: {getattr(st.session_state, 'user', 'Unknown')}",
