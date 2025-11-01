@@ -268,7 +268,6 @@ def header_area():
             except Exception as e:
                 st.warning(f"Logo save error: {e}")
 
-
 # -------------------------
 # Login screen
 # -------------------------
@@ -276,7 +275,7 @@ def login_screen():
     header_area()
     st.write("")
 
-    # Langue
+    # Initialisation langue
     if "lang" not in st.session_state:
         st.session_state.lang = "FR"
     lang = st.selectbox(
@@ -287,20 +286,18 @@ def login_screen():
     )
     st.session_state.lang = lang
 
-    # Si utilisateur déjà connecté → affiche bouton déconnexion
+    # Si déjà connecté
     if st.session_state.get("user"):
         st.info(f"{t('logged_in')}: {st.session_state.user}")
         if st.button(t("logout")):
-            # Réinitialiser uniquement les clés de session liées à l'utilisateur
-            for key in ["user", "role"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.experimental_rerun()
-        return  # ne montre pas le formulaire de login si déjà connecté
+            st.session_state.user = None
+            st.session_state.role = None
+            st.session_state.page = "login"
+        return
 
     # Formulaire de login
     with st.form("login_form", clear_on_submit=False):
-        cols = st.columns([2, 1])
+        cols = st.columns([2,1])
         with cols[0]:
             username = st.text_input(t("username"), key="username_login")
         with cols[1]:
@@ -314,22 +311,14 @@ def login_screen():
         else:
             matched = find_user_key(uname)
             if matched and USERS[matched]["password"] == (password or ""):
-                # Connexion réussie → enregistrer session et rafraîchir page
+                # Connexion réussie
                 st.session_state.user = matched
                 st.session_state.role = USERS[matched].get("role", "user")
-                st.experimental_rerun()
+                st.session_state.page = "home"
             else:
                 st.error(t("invalid"))
 
-    # Footer
-    st.markdown(
-        "<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>"
-        f"{t('powered')}"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    # Changement de mot de passe même hors session
+    # Password change (fonctionne même si non connecté)
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
@@ -348,7 +337,7 @@ def login_screen():
 
 
 # -------------------------
-# Admin panel (inchangé)
+# Admin panel
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
@@ -366,14 +355,19 @@ def admin_panel():
             if st.button("Modify selected user"):
                 with st.expander(f"Modify {sel}", expanded=True):
                     new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"newpwd_{sel}")
-                    new_role = st.selectbox("Role", ["user","admin"], index=0 if info.get("role","user")=="user" else 1, key=f"newrole_{sel}")
+                    new_role = st.selectbox(
+                        "Role", ["user","admin"],
+                        index=0 if info.get("role","user")=="user" else 1,
+                        key=f"newrole_{sel}"
+                    )
                     if st.button("Save changes", key=f"save_{sel}"):
                         if new_pwd:
                             USERS[sel]["password"] = new_pwd
                         USERS[sel]["role"] = new_role
                         save_users(USERS)
                         st.success(f"Updated {sel}")
-                        st.experimental_rerun()
+                        st.session_state.page = "home"
+
             if st.button("Delete selected user"):
                 if sel.lower() == "admin":
                     st.warning("Cannot delete admin")
@@ -381,7 +375,7 @@ def admin_panel():
                     USERS.pop(sel)
                     save_users(USERS)
                     st.success(f"{sel} deleted")
-                    st.experimental_rerun()
+                    st.session_state.page = "home"
 
     # Ajouter un nouvel utilisateur
     with col_right:
@@ -401,7 +395,22 @@ def admin_panel():
                     USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
                     save_users(USERS)
                     st.success(f"User {new_user.strip()} added")
-                    st.experimental_rerun()
+                    st.session_state.page = "home"
+
+
+# -------------------------
+# Main run
+# -------------------------
+def run():
+    # Initialisation page
+    if "page" not in st.session_state:
+        st.session_state.page = "login"
+
+    # Affichage selon connexion
+    if st.session_state.page == "login" or not st.session_state.get("user"):
+        login_screen()
+    else:
+        main_app()  # Ton app LabT complète (S/N, Admin, etc.)
 
 # -------------------------
 # Linearity panel (automatic compute, single unknown field)
