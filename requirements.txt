@@ -9,4 +9,8 @@ pytesseract
 PyMuPDF
 opencv-python-headless
 fpdf2
+pdf2image
 reportlab
+
+
+
