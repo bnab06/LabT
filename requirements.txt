@@ -11,6 +11,8 @@ opencv-python-headless
 fpdf2
 pdf2image
 reportlab
+fpdf
+streamlit-plotly-events
 
 
 
