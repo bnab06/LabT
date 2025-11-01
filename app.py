@@ -529,39 +529,53 @@ def linearity_panel():
 # S/N
 # -------------------------
 
+
 def sn_panel_full():
-    import io
-    import re
+    """
+    Module S/N intégré LabT après login
+    """
+
+    import re, io, os
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from PIL import Image
-    from scipy.signal import find_peaks
     from scipy.ndimage import gaussian_filter1d
+    from scipy.signal import find_peaks
+    from datetime import datetime
+    from PIL import Image
     from fpdf import FPDF
+    import streamlit as st
+
+    # --- traduction simple fr/en ---
+    try:
+        _  # si déjà défini
+    except NameError:
+        def _(fr, en=None):
+            return fr if en is None else fr
 
     st.header(_("S/N", "S/N"))
-    st.write(_("Digitize chromatogram to calculate signal-to-noise",
-               "Numérisez le chromatogramme pour calculer le rapport signal/bruit"))
 
-    uploaded = st.file_uploader(
-        _("Upload chromatogram (CSV, PNG, JPG, PDF)",
-          "Télécharger chromatogramme (CSV, PNG, JPG, PDF)"),
-        type=["csv","png","jpg","jpeg","pdf"],
-        key="sn_uploader"
-    )
-
+    uploaded = st.file_uploader(_("Upload chromatogram", "Upload chromatogram"),
+                                type=["csv","png","jpg","jpeg","pdf"])
     if uploaded is None:
-        st.info(_("Manual mode: input H and h values", "Mode manuel : entrez les valeurs H et h"))
+        st.info(_("Manual S/N calculation", "Manual S/N calculation"))
         H = st.number_input("H (peak height)", value=0.0, format="%.6f")
         h = st.number_input("h (noise)", value=0.0, format="%.6f")
-        sn_classic = H / h if h else float("nan")
-        sn_usp = 2 * H / h if h else float("nan")
-        st.write(f"{_('S/N Classic','S/N Classique')}: {sn_classic:.4f}")
-        st.write(f"{_('S/N USP','S/N USP')}: {sn_usp:.4f}")
+        slope_input = st.number_input("Slope", value=0.0, format="%.6f")
+        sn_classic = H / h if h != 0 else float("nan")
+        sn_usp = 2*H/h if h != 0 else float("nan")
+        st.write(f"S/N Classic: {sn_classic:.4f}")
+        st.write(f"S/N USP: {sn_usp:.4f}")
+        if slope_input:
+            lod = 3.3*h/slope_input
+            loq = 10*h/slope_input
+            st.write(f"LOD: {lod:.6f}")
+            st.write(f"LOQ: {loq:.6f}")
         return
 
-    # --- Helper: extract X,Y from image ---
+    name = uploaded.name.lower()
+    df = None
+
     def extract_xy_from_image(image):
         try:
             import pytesseract
@@ -569,171 +583,143 @@ def sn_panel_full():
             lines = text.splitlines()
             data = []
             for line in lines:
-                line_clean = re.sub(r"[^\d\.,\- ]", " ", line)
+                line_clean = re.sub(r"[^\d\.,\- ]"," ", line)
                 parts = line_clean.split()
                 if len(parts) >= 2:
                     try:
-                        x = float(parts[0].replace(",", "."))
-                        y = float(parts[1].replace(",", "."))
-                        data.append((x, y))
-                    except:
-                        continue
+                        x = float(parts[0].replace(",",".")) 
+                        y = float(parts[1].replace(",",".")) 
+                        data.append((x,y))
+                    except: continue
             if data:
-                df_ocr = pd.DataFrame(data, columns=["X","Y"])
-                return df_ocr.sort_values("X").reset_index(drop=True)
-        except:
-            pass
-        # fallback: vertical projection
+                return pd.DataFrame(data, columns=["X","Y"]).sort_values("X").reset_index(drop=True)
+        except Exception: pass
+        # fallback: projection verticale
         arr = np.array(image.convert("L"))
         signal = arr.max(axis=0).astype(float)
         signal_smooth = gaussian_filter1d(signal, sigma=1)
         return pd.DataFrame({"X": np.arange(len(signal_smooth)), "Y": signal_smooth})
 
-    df = None
-    name = uploaded.name.lower()
-
-    # --- CSV ---
+    # --- Lecture fichier ---
     if name.endswith(".csv"):
+        uploaded.seek(0)
         try:
+            df0 = pd.read_csv(uploaded)
+        except:
             uploaded.seek(0)
-            try:
-                df0 = pd.read_csv(uploaded)
-            except:
-                uploaded.seek(0)
-                df0 = pd.read_csv(uploaded, sep=";", engine="python")
-            if df0.shape[1] < 2:
-                st.error("CSV must have at least two columns")
-                return
-            cols_low = [c.lower() for c in df0.columns]
-            if "time" in cols_low and "signal" in cols_low:
-                df = df0.rename(columns={
-                    df0.columns[cols_low.index("time")]: "X",
-                    df0.columns[cols_low.index("signal")]: "Y"
-                })
-            else:
-                df = df0.iloc[:, :2].copy()
-                df.columns = ["X","Y"]
-            df["X"] = pd.to_numeric(df["X"], errors="coerce")
-            df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-        except Exception as e:
-            st.error(f"CSV read error: {e}")
-            return
+            df0 = pd.read_csv(uploaded, sep=";", engine="python")
+        cols_low = [c.lower() for c in df0.columns]
+        if "time" in cols_low and "signal" in cols_low:
+            df = df0.rename(columns={df0.columns[cols_low.index("time")]:"X",
+                                     df0.columns[cols_low.index("signal")]:"Y"})
+        else:
+            df = df0.iloc[:, :2].copy()
+            df.columns = ["X","Y"]
+        df["X"] = pd.to_numeric(df["X"], errors="coerce")
+        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
 
-    # --- Image ---
     elif name.endswith((".png",".jpg",".jpeg")):
         uploaded.seek(0)
         img = Image.open(uploaded).convert("RGB")
-        st.subheader(_("Original image", "Image originale"))
+        st.subheader(_("Original image", "Original image"))
         st.image(img, use_column_width=True)
         df = extract_xy_from_image(img)
 
-    # --- PDF ---
     elif name.endswith(".pdf"):
+        uploaded.seek(0)
         try:
             from pdf2image import convert_from_bytes
-            uploaded.seek(0)
             pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
             img = pages[0]
-            st.subheader(_("Original image from PDF", "Image extraite du PDF"))
-            st.image(img, use_column_width=True)
-            df = extract_xy_from_image(img)
-        except Exception as e:
-            st.warning(_("PDF to image conversion failed, OCR fallback",
-                         "Conversion PDF → image échouée, fallback OCR"))
-            df = None
+        except Exception:
+            img = Image.new("L",(800,600), color=255)
+        st.subheader(_("Original image", "Original image"))
+        st.image(img, use_column_width=True)
+        df = extract_xy_from_image(img)
 
     if df is None or df.empty:
-        st.warning(_("Signal flat or OCR invalid", "Signal plat ou OCR invalide"))
+        st.error(_("No valid signal detected", "No valid signal detected"))
         return
 
     df = df.dropna().sort_values("X").reset_index(drop=True)
 
-    # --- Noise region selection ---
-    st.subheader(_("Select noise region", "Sélectionnez la région de bruit"))
+    # --- Sélection région bruit ---
+    st.subheader(_("Select region for noise estimation", "Select region for noise estimation"))
     x_min, x_max = float(df["X"].min()), float(df["X"].max())
-    default_start = x_min + 0.25*(x_max - x_min)
-    default_end = x_min + 0.75*(x_max - x_min)
-    try:
-        start, end = st.slider(
-            _("Select X range", "Sélectionnez la plage X"),
-            min_value=float(x_min), max_value=float(x_max),
-            value=(float(default_start), float(default_end))
-        )
-    except:
-        start, end = x_min, x_max
+    default_start = x_min + 0.25*(x_max-x_min)
+    default_end = x_min + 0.75*(x_max-x_min)
+    start, end = st.slider(_("Select X range","Select X range"),
+                            min_value=float(x_min),
+                            max_value=float(x_max),
+                            value=(float(default_start), float(default_end)))
+    region = df[(df["X"]>=start)&(df["X"]<=end)]
+    if region.shape[0]<2:
+        st.warning(_("Region too small for noise estimation","Region too small for noise estimation"))
 
-    region = df[(df["X"]>=start) & (df["X"]<=end)]
-    baseline = float(region["Y"].mean()) if region.shape[0]>1 else float(df["Y"].min())
-    noise_std = float(region["Y"].std(ddof=0)) or 1e-12
+    # --- Détection pic principal ---
+    y = df["Y"].values
+    x = df["X"].values
+    peak_idx = np.argmax(y)
+    peak_x = x[peak_idx]
+    peak_y = y[peak_idx]
 
-    # --- Peak detection on full signal (independent of noise region) ---
-    y_full = df["Y"].values
-    peaks_idx, _ = find_peaks(y_full)
-    peak_idx = np.argmax(y_full) if len(peaks_idx)==0 else peaks_idx[np.argmax(y_full[peaks_idx])]
-    H = y_full[peak_idx] - baseline
-    h = noise_std
-    tR = df["X"].values[peak_idx]
+    # Bruit et baseline
+    noise_std = region["Y"].std(ddof=0) if not region.empty else np.std(y)
+    baseline = region["Y"].mean() if not region.empty else np.mean(y)
+    height = peak_y - baseline
 
-    # --- Full width at half maximum ---
-    half_max = baseline + H/2
-    left_idx = np.where(y_full[:peak_idx] <= half_max)[0]
-    right_idx = np.where(y_full[peak_idx:] <= half_max)[0]
-    left = left_idx[-1] if len(left_idx) else 0
-    right = peak_idx + right_idx[0] if len(right_idx) else len(y_full)-1
-    W = df["X"].values[right] - df["X"].values[left]
+    # Largeur à mi-hauteur
+    half_height = baseline + height/2
+    left_idx = np.where(y[:peak_idx]<=half_height)[0]
+    right_idx = np.where(y[peak_idx:]<=half_height)[0]
+    W = x[peak_idx] - x[left_idx[-1]] if len(left_idx)>0 else np.nan
+    if len(right_idx)>0:
+        W += x[peak_idx+right_idx[0]] - x[peak_idx]
 
-    sn_classic = H / h if h else float("nan")
-    sn_usp = 2 * H / h if h else float("nan")
+    # --- S/N ---
+    sn_classic = peak_y / noise_std
+    sn_usp = height / noise_std
+    st.write(f"S/N Classic: {sn_classic:.4f}")
+    st.write(f"S/N USP: {sn_usp:.4f}")
+    st.write(f"Peak X (Retention time): {peak_x:.4f}")
+    st.write(f"H: {height:.4f}, Noise h: {noise_std:.4f}, Width W: {W:.4f}")
 
-    # --- Display results ---
-    st.subheader(_("S/N Results", "Résultats S/N"))
-    st.write(f"{_('Peak height H','Hauteur H')}: {H:.4f}")
-    st.write(f"{_('Noise h','Bruit h')}: {h:.4f}")
-    st.write(f"{_('Width W','Largeur W')}: {W:.4f}")
-    st.write(f"{_('Retention time tR','Temps de rétention tR')}: {tR:.4f}")
-    st.write(f"{_('S/N Classic','S/N Classique')}: {sn_classic:.4f}")
-    st.write(f"{_('S/N USP','S/N USP')}: {sn_usp:.4f}")
-
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(10,4))
-    ax.plot(df["X"], df["Y"], label="Chromatogram")
-    ax.axhline(baseline, color="grey", linestyle="--", label="Baseline")
-    ax.plot(df["X"].values[peak_idx], y_full[peak_idx], "r^", label="Peak")
-    ax.axhline(half_max, color="orange", linestyle=":", label="Half height")
-    ax.set_xlabel(_("Time / Retention", "Temps / rétention"))
-    ax.set_ylabel(_("Signal", "Signal"))
-    ax.invert_yaxis()
+    # --- Plot chromatogramme ---
+    fig, ax = plt.subplots(figsize=(10,3))
+    ax.plot(x,y, label="Chromatogram")
+    ax.axvspan(start,end,alpha=0.25,label="Noise region")
+    ax.plot(peak_x, peak_y,"r^", label="Main peak")
+    ax.axhline(baseline, color="green", linestyle="--", label="Baseline")
+    ax.axhline(half_height,color="orange",linestyle="--", label="Half height")
+    ax.set_xlabel(_("Time / Temps","Time / Temps"))
+    ax.set_ylabel(_("Signal","Signal"))
     ax.legend()
     st.pyplot(fig)
 
     # --- Export CSV ---
     csv_buf = io.StringIO()
-    df.to_csv(csv_buf, index=False)
-    st.download_button(_("Download CSV","Télécharger CSV"), csv_buf.getvalue(),
-                       "sn_chrom.csv", "text/csv")
+    df.to_csv(csv_buf,index=False)
+    st.download_button(_("Download CSV","Download CSV"), csv_buf.getvalue(), "sn_region.csv", "text/csv")
 
     # --- Export PDF ---
-    pdf = FPDF()
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
     pdf.add_page()
-    pdf.set_font("Arial", "B", 14)
-    pdf.cell(0, 10, _("Signal-to-Noise Report","Rapport Signal/Bruit"), ln=True, align="C")
+    pdf.set_font("Arial","B",16)
+    pdf.cell(0,10,_("S/N Analysis Report","S/N Analysis Report"),0,1,"C")
     pdf.ln(5)
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(0, 8, f"{_('Peak height H','Hauteur H')}: {H:.4f}", ln=True)
-    pdf.cell(0, 8, f"{_('Noise h','Bruit h')}: {h:.4f}", ln=True)
-    pdf.cell(0, 8, f"{_('Width W','Largeur W')}: {W:.4f}", ln=True)
-    pdf.cell(0, 8, f"{_('Retention time tR','Temps de rétention tR')}: {tR:.4f}", ln=True)
-    pdf.cell(0, 8, f"{_('S/N Classic','S/N Classique')}: {sn_classic:.4f}", ln=True)
-    pdf.cell(0, 8, f"{_('S/N USP','S/N USP')}: {sn_usp:.4f}", ln=True)
-    pdf.ln(5)
+    pdf.set_font("Arial","",12)
+    pdf.cell(0,8,f"S/N Classic: {sn_classic:.4f}",0,1)
+    pdf.cell(0,8,f"S/N USP: {sn_usp:.4f}",0,1)
+    pdf.cell(0,8,f"Peak X (Retention time): {peak_x:.4f}",0,1)
+    pdf.cell(0,8,f"H: {height:.4f}, Noise h: {noise_std:.4f}, Width W: {W:.4f}",0,1)
     img_buf = io.BytesIO()
-    fig.savefig(img_buf, format="PNG", bbox_inches="tight")
+    fig.savefig(img_buf, format="PNG")
     img_buf.seek(0)
-    pdf.image(img_buf, x=10, w=190)
-    pdf_buf = io.BytesIO()
-    pdf.output(pdf_buf)
-    pdf_buf.seek(0)
-    st.download_button(_("Download PDF","Télécharger PDF"), pdf_buf, "sn_report.pdf", "application/pdf")
+    pdf.image(img_buf, x=10, y=50, w=270)
+    pdf_output = io.BytesIO()
+    pdf.output(pdf_output)
+    pdf_output.seek(0)
+    st.download_button(_("Download PDF","Download PDF"), pdf_output, "sn_report.pdf", "application/pdf")
 
 # -------------------------
 # Main app (tabs at top, modern)
