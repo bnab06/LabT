@@ -268,6 +268,7 @@ def header_area():
             except Exception as e:
                 st.warning(f"Logo save error: {e}")
 
+
 # -------------------------
 # Login screen
 # -------------------------
@@ -286,6 +287,17 @@ def login_screen():
     )
     st.session_state.lang = lang
 
+    # Si utilisateur déjà connecté → affiche bouton déconnexion
+    if st.session_state.get("user"):
+        st.info(f"{t('logged_in')}: {st.session_state.user}")
+        if st.button(t("logout")):
+            # Réinitialiser uniquement les clés de session liées à l'utilisateur
+            for key in ["user", "role"]:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.experimental_rerun()
+        return  # ne montre pas le formulaire de login si déjà connecté
+
     # Formulaire de login
     with st.form("login_form", clear_on_submit=False):
         cols = st.columns([2, 1])
@@ -299,23 +311,15 @@ def login_screen():
         uname = (username or "").strip()
         if not uname:
             st.error(t("invalid"))
-            return
-        matched = find_user_key(uname)
-        if matched and USERS[matched]["password"] == (password or ""):
-            st.session_state.user = matched
-            st.session_state.role = USERS[matched].get("role", "user")
-            st.success(f"{uname} {t('logged_in')}")
-            st.stop()
         else:
-            st.error(t("invalid"))
-
-    # Déconnexion (si connecté)
-    if st.session_state.get("user"):
-        if st.button(t("logout")):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
-            st.success(t("logged_out"))
-            st.stop()
+            matched = find_user_key(uname)
+            if matched and USERS[matched]["password"] == (password or ""):
+                # Connexion réussie → enregistrer session et rafraîchir page
+                st.session_state.user = matched
+                st.session_state.role = USERS[matched].get("role", "user")
+                st.experimental_rerun()
+            else:
+                st.error(t("invalid"))
 
     # Footer
     st.markdown(
@@ -325,7 +329,7 @@ def login_screen():
         unsafe_allow_html=True,
     )
 
-    # Changement de mot de passe (même si pas connecté)
+    # Changement de mot de passe même hors session
     with st.expander(t("change_pwd"), expanded=False):
         st.write("Change a user's password (works even if not logged in).")
         u_name = st.text_input("Username to change", key="chg_user")
@@ -344,7 +348,7 @@ def login_screen():
 
 
 # -------------------------
-# Admin panel (users dropdown)
+# Admin panel (inchangé)
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
