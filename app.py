@@ -531,121 +531,133 @@ def linearity_panel():
 
 def sn_panel_full():
     import re, io, os
+    from datetime import datetime
     from PIL import Image
     import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
-    from datetime import datetime
     from scipy.ndimage import gaussian_filter1d
     from scipy.signal import find_peaks
     import streamlit as st
 
-    st.header("Signal-to-Noise Panel")
+    st.header("Signal-to-Noise (S/N) Panel")
 
-    uploaded = st.file_uploader("Upload chromatogram (CSV / PNG / JPG / PDF)", 
-                                type=["csv","png","jpg","jpeg","pdf"])
-    sn_manual_mode = uploaded is None
-
-    # --- MANUAL MODE ---
-    if sn_manual_mode:
+    uploaded = st.file_uploader("Upload chromatogram (CSV, PNG/JPG, PDF)", type=["csv","png","jpg","jpeg","pdf"])
+    if uploaded is None:
+        # --- Manual S/N calculation ---
         st.subheader("Manual S/N calculation")
         H = st.number_input("H (peak height)", value=0.0, format="%.6f")
         h = st.number_input("h (noise)", value=0.0, format="%.6f")
-        slope_auto_raw = st.session_state.get("linear_slope", 0.0)
-        try:
-            slope_auto = float(slope_auto_raw)
-        except:
-            slope_auto = 0.0
-        slope_input = st.number_input("Slope (imported or manual)", value=slope_auto, format="%.6f")
+        slope_input = st.number_input("Slope (manual if needed)", value=0.0, format="%.6f")
         unit = st.selectbox("Unit", ["µg/mL", "mg/mL", "ng/mL"])
         sn_classic = H / h if h != 0 else float("nan")
-        sn_usp = 2 * H / h if h != 0 else float("nan")
+        sn_usp = 2*H / h if h != 0 else float("nan")
         st.write(f"S/N Classic: {sn_classic:.4f}")
         st.write(f"S/N USP: {sn_usp:.4f}")
         if slope_input:
-            try:
-                lod = 3.3 * h / slope_input
-                loq = 10 * h / slope_input
-                st.write(f"LOD ({unit}): {lod:.6f}")
-                st.write(f"LOQ ({unit}): {loq:.6f}")
-            except:
-                pass
+            lod = 3.3*h/slope_input
+            loq = 10*h/slope_input
+            st.write(f"LOD ({unit}): {lod:.6f}")
+            st.write(f"LOQ ({unit}): {loq:.6f}")
         return
 
-    # --- Helper: extract data from image or OCR fallback ---
-    def extract_xy_from_image(image):
+    # --- Helper: OCR / projection fallback ---
+    def extract_xy_from_image(image: Image.Image):
         try:
             import pytesseract
             text = pytesseract.image_to_string(image)
             lines = text.splitlines()
             data = []
             for line in lines:
-                line_clean = re.sub(r"[^\d\.,\- ]", " ", line)
+                line_clean = re.sub(r"[^\d\.,\- ]"," ",line)
                 parts = line_clean.split()
-                if len(parts) >= 2:
+                if len(parts)>=2:
                     try:
-                        x = float(parts[0].replace(",", "."))
-                        y = float(parts[1].replace(",", "."))
-                        data.append((x, y))
-                    except:
-                        continue
+                        x = float(parts[0].replace(",","."))
+                        y = float(parts[1].replace(",","."))
+                        data.append((x,y))
+                    except: continue
             if data:
-                df_ocr = pd.DataFrame(data, columns=["X","Y"]).sort_values("X").reset_index(drop=True)
+                df_ocr = pd.DataFrame(data,columns=["X","Y"]).sort_values("X").reset_index(drop=True)
                 return df_ocr
-        except Exception:
-            pass
-
-        # OCR fail → vertical projection
+        except: pass
+        # fallback projection
         arr = np.array(image.convert("L"))
-        if arr.mean() > 127:
-            arr = 255 - arr
         signal = arr.max(axis=0).astype(float)
         signal_smooth = gaussian_filter1d(signal, sigma=1)
-        if len(signal_smooth) < 50:
-            x = np.linspace(0, len(signal_smooth)-1, 50)
-            signal_smooth = np.interp(x, np.arange(len(signal_smooth)), signal_smooth)
-        df = pd.DataFrame({"X": np.arange(len(signal_smooth)), "Y": signal_smooth})
-        return df
+        return pd.DataFrame({"X": np.arange(len(signal_smooth)),"Y":signal_smooth})
 
-    # --- Read file ---
+    name = uploaded.name.lower()
     df = None
-    fname = uploaded.name.lower()
-    if fname.endswith(".csv"):
-        uploaded.seek(0)
+
+    # --- CSV ---
+    if name.endswith(".csv"):
         try:
-            df0 = pd.read_csv(uploaded)
-        except:
             uploaded.seek(0)
-            df0 = pd.read_csv(uploaded, sep=";", engine="python")
-        if df0.shape[1] < 2:
-            st.error("CSV must have at least two columns")
+            try:
+                df0 = pd.read_csv(uploaded)
+            except:
+                uploaded.seek(0)
+                df0 = pd.read_csv(uploaded, sep=";", engine="python")
+            if df0.shape[1]<2:
+                st.error("CSV must have at least 2 columns")
+                return
+            cols_low = [c.lower() for c in df0.columns]
+            if "time" in cols_low and "signal" in cols_low:
+                df = df0.rename(columns={df0.columns[cols_low.index("time")]:"X",
+                                         df0.columns[cols_low.index("signal")]:"Y"})
+            else:
+                df = df0.iloc[:, :2].copy()
+                df.columns = ["X","Y"]
+            df["X"] = pd.to_numeric(df["X"],errors="coerce")
+            df["Y"] = pd.to_numeric(df["Y"],errors="coerce")
+            st.dataframe(df.head(50))
+        except Exception as e:
+            st.error(f"CSV read error: {e}")
             return
-        cols_low = [c.lower() for c in df0.columns]
-        if "time" in cols_low and "signal" in cols_low:
-            df = df0.rename(columns={df0.columns[cols_low.index("time")]: "X",
-                                     df0.columns[cols_low.index("signal")]: "Y"})
-        else:
-            df = df0.iloc[:, :2].copy()
-            df.columns = ["X","Y"]
-        df["X"] = pd.to_numeric(df["X"], errors="coerce")
-        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-    elif fname.endswith((".png",".jpg",".jpeg")):
+
+    # --- IMAGE ---
+    elif name.endswith((".png",".jpg",".jpeg")):
+        try:
+            uploaded.seek(0)
+            orig_image = Image.open(uploaded).convert("RGB")
+            st.image(orig_image,use_column_width=True)
+            df = extract_xy_from_image(orig_image)
+            st.success("Numeric data obtained from image (OCR or projection).")
+        except Exception as e:
+            st.error(f"Image error: {e}")
+            return
+
+    # --- PDF ---
+    elif name.endswith(".pdf"):
         uploaded.seek(0)
-        img = Image.open(uploaded).convert("RGB")
-        st.image(img, use_column_width=True)
-        df = extract_xy_from_image(img)
-    elif fname.endswith(".pdf"):
+        df = None
+        # Try pdf2image first
         try:
             from pdf2image import convert_from_bytes
-            uploaded.seek(0)
             pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
-            img = pages[0]
-            st.image(img, use_column_width=True)
-            df = extract_xy_from_image(img)
-        except Exception:
-            st.warning("PDF conversion failed. Using placeholder image.")
-            img = Image.new("RGB", (600,200), "white")
-            df = extract_xy_from_image(img)
+            orig_image = pages[0]
+            st.image(orig_image,use_column_width=True)
+            df = extract_xy_from_image(orig_image)
+            st.success("Numeric data obtained from PDF (pdf2image).")
+        except Exception as e_pdf:
+            st.warning("pdf2image failed (poppler missing?). Trying PyMuPDF fallback...")
+            try:
+                import fitz
+                uploaded.seek(0)
+                pdf_doc = fitz.open(stream=uploaded.read(), filetype="pdf")
+                page = pdf_doc[0]
+                zoom = 2
+                mat = fitz.Matrix(zoom, zoom)
+                pix = page.get_pixmap(matrix=mat)
+                from io import BytesIO
+                orig_image = Image.open(BytesIO(pix.tobytes("png")))
+                st.image(orig_image,use_column_width=True)
+                df = extract_xy_from_image(orig_image)
+                st.success("Numeric data obtained from PDF (PyMuPDF fallback).")
+            except Exception as e_fallback:
+                st.error(f"Cannot convert PDF to image: {e_pdf}\nFallback failed: {e_fallback}")
+                return
     else:
         st.error("Unsupported file type")
         return
@@ -653,116 +665,94 @@ def sn_panel_full():
     if df is None or df.empty:
         st.warning("No valid signal detected.")
         return
-
     df = df.dropna().sort_values("X").reset_index(drop=True)
 
     # --- Region selection ---
-    x_min, x_max = df["X"].min(), df["X"].max()
-    if x_min == x_max:
+    st.subheader("Select region")
+    x_min, x_max = float(df["X"].min()), float(df["X"].max())
+    if x_min==x_max:
         st.warning("Signal is flat or OCR invalid. Using artificial X range.")
         x_min, x_max = 0, len(df)-1
     default_start = x_min + 0.25*(x_max-x_min)
     default_end = x_min + 0.75*(x_max-x_min)
-    start, end = st.slider("Select X range",
-                            min_value=float(x_min),
-                            max_value=float(x_max),
-                            value=(float(default_start), float(default_end)))
-    region = df[(df["X"] >= start) & (df["X"] <= end)].copy()
-    if len(region) < 2:
-        st.warning("Region too small. Using full signal.")
-        region = df.copy()
+    try:
+        start,end = st.slider("Select X range", float(x_min), float(x_max), value=(float(default_start),float(default_end)))
+    except Exception:
+        start,end = x_min,x_max
+    region = df[(df["X"]>=start) & (df["X"]<=end)].copy()
+    if len(region)<2:
+        st.warning("Region too small for peak detection.")
 
     # --- Peak detection ---
-    st.subheader("Peak detection settings")
-    y_region = region["Y"].values
-    baseline = float(np.mean(y_region))
-    noise_std = float(np.std(y_region)) or 1e-12
-    peak_val = float(np.max(y_region))
-    height = peak_val - baseline
+    st.subheader("Peak detection")
+    height_factor = st.slider("Height factor (threshold = baseline + height_factor*σ)",0.0,10.0,3.0,step=0.1)
+    max_dist = max(1,len(region)//2)
+    min_dist_default = max(1,len(region)//100)
+    try:
+        min_dist = st.slider("Min distance between peaks", 1, max_dist, min_dist_default)
+    except Exception:
+        min_dist = 1
 
-    height_factor = st.slider("Height factor (baseline + factor*σ)", 0.0, 10.0, 3.0, 0.1)
-    threshold = baseline + height_factor * noise_std
-
-    num_points = len(region)
-    min_dist_slider = max(1, num_points // 100)
-    max_dist_slider = max(min_dist_slider, num_points // 2)
-    min_distance = st.slider("Min distance between peaks",
-                             min_value=1,
-                             max_value=max_dist_slider,
-                             value=min_dist_slider)
-
-    peaks_idx, peaks_props = find_peaks(y_region, height=threshold, distance=min_distance)
-
-    if len(peaks_idx) == 0 and height > 0:
-        for factor in np.linspace(height_factor*0.5, 0.1, 10):
-            threshold = baseline + factor*noise_std
-            peaks_idx, peaks_props = find_peaks(y_region, height=threshold, distance=min_distance)
-            if len(peaks_idx) > 0:
-                st.info(f"Height factor auto-adjusted to {factor:.2f} to detect peaks.")
-                break
-
-    peaks_x = region["X"].values[peaks_idx] if len(peaks_idx) else np.array([])
-    peaks_y = y_region[peaks_idx] if len(peaks_idx) else np.array([])
+    if len(region)>=2:
+        y_region = region["Y"].values
+        baseline = float(region["Y"].mean())
+        peak_val = float(region["Y"].max())
+        height = peak_val - baseline
+        noise_std = float(region["Y"].std(ddof=0)) or 1e-12
+        threshold = baseline + height_factor*noise_std
+        try:
+            peaks_idx, peaks_props = find_peaks(y_region, height=threshold, distance=min_dist)
+        except:
+            peaks_idx, peaks_props = find_peaks(y_region,height=threshold)
+        peaks_x = region["X"].values[peaks_idx] if len(peaks_idx) else np.array([])
+        peaks_y = y_region[peaks_idx] if len(peaks_idx) else np.array([])
+    else:
+        peaks_x, peaks_y = np.array([]), np.array([])
+        peak_val, baseline, height, noise_std = 0,0,0,1e-12
 
     # --- Plot ---
     fig, ax = plt.subplots(figsize=(10,3))
     ax.plot(df["X"], df["Y"], label="Chromatogram")
-    ax.axvspan(start, end, alpha=0.25, label="Selected region")
+    ax.axvspan(start,end,alpha=0.25,label="Selected region")
     if len(peaks_x):
-        ax.plot(peaks_x, peaks_y, "r^", label="Detected peaks")
-    ax.hlines(threshold, xmin=start, xmax=end, linestyles="--", label=f"Threshold")
+        ax.plot(peaks_x,peaks_y,"r^",label="Detected peaks")
+    ax.hlines(threshold,xmin=start,xmax=end,linestyles="--",label=f"Threshold ({height_factor}·σ+baseline)")
     ax.legend()
     st.pyplot(fig)
 
-    # --- Compute S/N ---
+    st.write(f"Peaks detected: {len(peaks_x)}")
+    if len(peaks_x):
+        st.dataframe(pd.DataFrame({"X":peaks_x,"Y":peaks_y}))
+
+    # --- S/N calculation ---
     sn_classic = peak_val/noise_std
     sn_usp = height/noise_std
     st.write(f"S/N Classic: {sn_classic:.4f}")
     st.write(f"S/N USP: {sn_usp:.4f}")
 
-    slope_auto = st.session_state.get("linear_slope", 1.0)
-    try:
-        slope_auto = float(slope_auto)
-    except:
-        slope_auto = 1.0
-    slope_input = st.number_input("Slope (for LOD/LOQ)", value=slope_auto, min_value=0.0, step=0.01)
-    if slope_input > 0:
-        lod = 3.3 * noise_std / slope_input
-        loq = 10 * noise_std / slope_input
-        st.write(f"LOD: {lod:.6f}")
-        st.write(f"LOQ: {loq:.6f}")
+    slope = st.session_state.get("linear_slope",0.0)
+    slope_input = st.number_input("Slope (manual if needed)", value=float(slope))
+    unit = st.selectbox("Unit", ["µg/mL","mg/mL","ng/mL"], index=0)
+    if slope_input:
+        lod = 3.3*noise_std/slope_input
+        loq = 10*noise_std/slope_input
+        st.write(f"LOD ({unit}): {lod:.6f}")
+        st.write(f"LOQ ({unit}): {loq:.6f}")
 
     # --- Export CSV ---
     csv_buf = io.StringIO()
-    region.to_csv(csv_buf, index=False)
-    st.download_button("Download region CSV", csv_buf.getvalue(), "sn_region.csv", "text/csv")
+    region.to_csv(csv_buf,index=False)
+    st.download_button("Download CSV", csv_buf.getvalue(), "sn_region.csv", "text/csv")
 
     # --- Export PDF ---
     if st.button("Export S/N PDF"):
-        from fpdf import FPDF
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", bbox_inches="tight")
-        buf.seek(0)
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(0,10,f"File: {uploaded.name}", ln=True)
-        pdf.cell(0,10,f"Date: {datetime.now():%Y-%m-%d %H:%M:%S}", ln=True)
-        pdf.cell(0,10,f"S/N Classic: {sn_classic:.4f}", ln=True)
-        pdf.cell(0,10,f"S/N USP: {sn_usp:.4f}", ln=True)
-        if slope_input > 0:
-            pdf.cell(0,10,f"LOD: {lod:.6f}", ln=True)
-            pdf.cell(0,10,f"LOQ: {loq:.6f}", ln=True)
-        if len(peaks_x):
-            pdf.cell(0,10,"Detected Peaks:", ln=True)
-            for xi, yi in zip(peaks_x, peaks_y):
-                pdf.cell(0,8,f" - {xi:.6g}, {yi:.6g}", ln=True)
-        pdf.image(buf, x=10, y=None, w=180)
-        pdf_out = io.BytesIO()
-        pdf.output(pdf_out)
-        pdf_out.seek(0)
-        st.download_button("Download S/N PDF", pdf_out, "sn_report.pdf", "application/pdf")
+        import matplotlib.backends.backend_pdf
+        pdf_buf = io.BytesIO()
+        pdf = matplotlib.backends.backend_pdf.PdfPages(pdf_buf)
+        pdf.savefig(fig,bbox_inches="tight")
+        pdf.close()
+        pdf_buf.seek(0)
+        st.download_button("Download S/N PDF", pdf_buf.getvalue(), "sn_report.pdf", "application/pdf")
 
 # -------------------------
 # Main app (tabs at top, modern)
