@@ -269,81 +269,70 @@ def header_area():
                 st.warning(f"Logo save error: {e}")
 
 # -------------------------
+# Users / Gestion simple
+# -------------------------
+USERS = {
+    "admin": {"password": "admin", "role": "admin"},
+    "user": {"password": "user", "role": "user"},
+}
+
+def save_users(users_dict):
+    # Ici tu peux sauvegarder USERS dans un JSON si besoin
+    pass
+
+def find_user_key(uname):
+    for k in USERS.keys():
+        if k.lower() == uname.lower():
+            return k
+    return None
+
+# -------------------------
+# Logout
+# -------------------------
+def logout_button():
+    if st.session_state.get("user"):
+        if st.button("Déconnexion / Logout"):
+            st.session_state.pop("user")
+            st.session_state.pop("role")
+            st.session_state.page = "login"
+            st.experimental_rerun()
+
+# -------------------------
 # Login screen
 # -------------------------
 def login_screen():
-    header_area()
-    st.write("")
+    st.session_state.page = st.session_state.get("page", "login")
+    st.header("Connexion / Login")
 
-    # Initialisation langue
-    if "lang" not in st.session_state:
-        st.session_state.lang = "FR"
-    lang = st.selectbox(
-        "Language / Langue",
-        ["FR", "EN"],
-        index=0 if st.session_state.lang == "FR" else 1,
-        key="login_lang"
-    )
-    st.session_state.lang = lang
-
-    # Si déjà connecté
-    if st.session_state.get("user"):
-        st.info(f"{t('logged_in')}: {st.session_state.user}")
-        if st.button(t("logout")):
-            st.session_state.user = None
-            st.session_state.role = None
-            st.session_state.page = "login"
-        return
-
-    # Formulaire de login
     with st.form("login_form", clear_on_submit=False):
-        cols = st.columns([2,1])
-        with cols[0]:
-            username = st.text_input(t("username"), key="username_login")
-        with cols[1]:
-            password = st.text_input(t("password"), type="password", key="password_login")
-        submitted = st.form_submit_button(t("login"))
+        username = st.text_input("Nom d'utilisateur / Username")
+        password = st.text_input("Mot de passe / Password", type="password")
+        submitted = st.form_submit_button("Connexion / Login")
 
     if submitted:
         uname = (username or "").strip()
         if not uname:
-            st.error(t("invalid"))
+            st.error("Nom d'utilisateur vide / Username empty")
+            return False
+        matched = find_user_key(uname)
+        if matched and USERS[matched]["password"] == (password or ""):
+            st.session_state.user = matched
+            st.session_state.role = USERS[matched].get("role", "user")
+            st.session_state.page = "app"
+            st.experimental_rerun()
         else:
-            matched = find_user_key(uname)
-            if matched and USERS[matched]["password"] == (password or ""):
-                # Connexion réussie
-                st.session_state.user = matched
-                st.session_state.role = USERS[matched].get("role", "user")
-                st.session_state.page = "home"
-            else:
-                st.error(t("invalid"))
-
-    # Password change (fonctionne même si non connecté)
-    with st.expander(t("change_pwd"), expanded=False):
-        st.write("Change a user's password (works even if not logged in).")
-        u_name = st.text_input("Username to change", key="chg_user")
-        u_pwd = st.text_input("New password", type="password", key="chg_pwd")
-        if st.button("Change password", key="chg_btn"):
-            if not u_name.strip() or not u_pwd:
-                st.warning("Enter username and new password")
-            else:
-                found = find_user_key(u_name)
-                if not found:
-                    st.warning("User not found")
-                else:
-                    USERS[found]["password"] = u_pwd.strip()
-                    save_users(USERS)
-                    st.success(f"Password updated for {found}")
-
+            st.error("Utilisateur ou mot de passe invalide / Invalid user or password")
+            return False
+    return False
 
 # -------------------------
 # Admin panel
 # -------------------------
 def admin_panel():
-    st.header(t("admin"))
+    st.header("Admin Panel")
     col_left, col_right = st.columns([2,1])
 
-    # Liste utilisateurs existants
+    # Utilisateurs existants
     with col_left:
         st.subheader("Existing users")
         users_list = list(USERS.keys())
@@ -355,18 +344,13 @@ def admin_panel():
             if st.button("Modify selected user"):
                 with st.expander(f"Modify {sel}", expanded=True):
                     new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"newpwd_{sel}")
-                    new_role = st.selectbox(
-                        "Role", ["user","admin"],
-                        index=0 if info.get("role","user")=="user" else 1,
-                        key=f"newrole_{sel}"
-                    )
+                    new_role = st.selectbox("Role", ["user","admin"], index=0 if info.get("role","user")=="user" else 1, key=f"newrole_{sel}")
                     if st.button("Save changes", key=f"save_{sel}"):
                         if new_pwd:
                             USERS[sel]["password"] = new_pwd
                         USERS[sel]["role"] = new_role
                         save_users(USERS)
                         st.success(f"Updated {sel}")
-                        st.session_state.page = "home"
 
             if st.button("Delete selected user"):
                 if sel.lower() == "admin":
@@ -375,14 +359,13 @@ def admin_panel():
                     USERS.pop(sel)
                     save_users(USERS)
                     st.success(f"{sel} deleted")
-                    st.session_state.page = "home"
 
-    # Ajouter un nouvel utilisateur
+    # Ajouter utilisateur
     with col_right:
-        st.subheader(t("add_user"))
+        st.subheader("Add new user")
         with st.form("form_add_user"):
-            new_user = st.text_input(t("enter_username"), key="add_username")
-            new_pass = st.text_input(t("enter_password"), type="password", key="add_password")
+            new_user = st.text_input("Enter username", key="add_username")
+            new_pass = st.text_input("Enter password", type="password", key="add_password")
             role = st.selectbox("Role", ["user","admin"], key="add_role")
             add_sub = st.form_submit_button("Add")
         if add_sub:
@@ -395,22 +378,31 @@ def admin_panel():
                     USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
                     save_users(USERS)
                     st.success(f"User {new_user.strip()} added")
-                    st.session_state.page = "home"
-
 
 # -------------------------
-# Main run
+# Main App
+# -------------------------
+def main_app():
+    logout_button()
+    st.write(f"Bonjour {st.session_state.get('user','')}! Vous êtes connecté.")
+    
+    # Admin panel
+    if st.session_state.get("role") == "admin":
+        admin_panel()
+
+# -------------------------
+# Run app
 # -------------------------
 def run():
-    # Initialisation page
     if "page" not in st.session_state:
         st.session_state.page = "login"
 
-    # Affichage selon connexion
-    if st.session_state.page == "login" or not st.session_state.get("user"):
+    if st.session_state.page == "login":
         login_screen()
     else:
-        main_app()  # Ton app LabT complète (S/N, Admin, etc.)
+        main_app()
+
+run()
 
 # -------------------------
 # Linearity panel (automatic compute, single unknown field)
