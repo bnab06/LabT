@@ -1,451 +1,304 @@
-# app.py
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from fpdf import FPDF
-from PIL import Image
-import io
+from PIL import Image, ImageOps
+import tempfile, io, fitz  # PyMuPDF for PDF
 import json
-import tempfile
-import os
 from datetime import datetime
-from scipy.signal import find_peaks
-from scipy.ndimage import gaussian_filter1d
-
-# Optional dependencies
-try:
-    from pdf2image import convert_from_bytes
-except Exception:
-    convert_from_bytes = None
-
-try:
-    import pytesseract
-except Exception:
-    pytesseract = None
 
 # -------------------------
-# Config Streamlit
+# User data (demo)
 # -------------------------
-st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
-LOGO_FILE = "logo_labt.png"
 USERS_FILE = "users.json"
 
-# -------------------------
-# Users helpers
-# -------------------------
 def load_users():
     try:
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
+        with open(USERS_FILE, "r") as f:
             return json.load(f)
-    except Exception:
-        default = {"admin":{"password":"admin123","role":"admin"}}
-        save_users(default)
-        return default
+    except:
+        return {"admin": {"password": "admin", "role": "admin"}}
 
-def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, indent=4, ensure_ascii=False)
+def save_users(data):
+    with open(USERS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
 USERS = load_users()
 
 def find_user_key(username):
-    if username is None:
-        return None
-    for u in USERS.keys():
-        if u.lower() == username.strip().lower():
-            return u
+    for k in USERS.keys():
+        if k.lower() == username.lower():
+            return k
     return None
 
-# -------------------------
-# Translations
-# -------------------------
-TEXTS = {
-    "FR": {
-        "app_title":"LabT",
-        "powered":"Powered by BnB",
-        "username":"Utilisateur",
-        "password":"Mot de passe",
-        "login":"Connexion",
-        "logout":"Déconnexion",
-        "invalid":"Identifiants invalides",
-        "linearity":"Linéarité",
-        "sn":"S/N",
-        "admin":"Admin",
-        "company":"Nom de la compagnie",
-        "input_csv":"CSV",
-        "input_manual":"Saisie manuelle",
-        "concentration":"Concentration",
-        "signal":"Signal",
-        "unit":"Unité",
-        "generate_pdf":"Générer PDF",
-        "download_pdf":"Télécharger PDF",
-        "download_csv":"Télécharger CSV",
-        "sn_classic":"S/N Classique",
-        "sn_usp":"S/N USP",
-        "lod":"LOD (conc.)",
-        "loq":"LOQ (conc.)",
-        "formulas":"Formules",
-        "select_region":"Sélectionner la zone",
-        "add_user":"Ajouter utilisateur",
-        "delete_user":"Supprimer utilisateur",
-        "modify_user":"Modifier mot de passe",
-        "enter_username":"Nom d'utilisateur",
-        "enter_password":"Mot de passe (simple)",
-        "upload_chrom":"Importer chromatogramme (CSV, PNG, JPG, PDF)",
-        "digitize_info":"Digitizing : OCR tenté si pytesseract installé (best-effort)",
-        "export_sn_pdf":"Exporter S/N PDF",
-        "download_original_pdf":"Télécharger PDF original",
-        "change_pwd":"Changer mot de passe (hors session)",
-        "compute":"Compute",
-        "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport.",
-        "select_section":"Section",
-        "upload_logo":"Uploader un logo (optionnel)"
-    },
-    "EN": {
-        "app_title":"LabT",
-        "powered":"Powered by BnB",
-        "username":"Username",
-        "password":"Password",
-        "login":"Login",
-        "logout":"Logout",
-        "invalid":"Invalid credentials",
-        "linearity":"Linearity",
-        "sn":"S/N",
-        "admin":"Admin",
-        "company":"Company name",
-        "input_csv":"CSV",
-        "input_manual":"Manual input",
-        "concentration":"Concentration",
-        "signal":"Signal",
-        "unit":"Unit",
-        "generate_pdf":"Generate PDF",
-        "download_pdf":"Download PDF",
-        "download_csv":"Download CSV",
-        "sn_classic":"S/N Classic",
-        "sn_usp":"S/N USP",
-        "lod":"LOD (conc.)",
-        "loq":"LOQ (conc.)",
-        "formulas":"Formulas",
-        "select_region":"Select region",
-        "add_user":"Add user",
-        "delete_user":"Delete user",
-        "modify_user":"Modify password",
-        "enter_username":"Username",
-        "enter_password":"Password (simple)",
-        "upload_chrom":"Upload chromatogram (CSV, PNG, JPG, PDF)",
-        "digitize_info":"Digitizing: OCR attempted if pytesseract available (best-effort)",
-        "export_sn_pdf":"Export S/N PDF",
-        "download_original_pdf":"Download original PDF",
-        "change_pwd":"Change password (outside session)",
-        "compute":"Compute",
-        "company_missing":"Please enter company name before generating the report.",
-        "select_section":"Section",
-        "upload_logo":"Upload logo (optional)"
-    }
-}
 
+# -------------------------
+# Language helper
+# -------------------------
 def t(key):
+    text = {
+        "FR": {
+            "username": "Nom d'utilisateur",
+            "password": "Mot de passe",
+            "login": "Connexion",
+            "invalid": "Nom d'utilisateur ou mot de passe invalide",
+            "change_pwd": "Changer le mot de passe",
+            "powered": "Propulsé par BnB",
+            "admin": "Panneau administrateur",
+            "add_user": "Ajouter un utilisateur",
+            "enter_username": "Nom d'utilisateur",
+            "enter_password": "Mot de passe",
+            "Upload file": "Téléverser un fichier",
+            "Upload your chromatogram (CSV, image, or PDF)": "Téléversez votre chromatogramme (CSV, image ou PDF)",
+            "Please upload a chromatogram.": "Veuillez téléverser un chromatogramme.",
+            "Invert chromatogram (flip vertically)": "Inverser le chromatogramme (ligne de base en bas)",
+            "Select noise region manually": "Sélectionner manuellement la zone de bruit",
+            "Start of noise region": "Début de la zone de bruit",
+            "End of noise region": "Fin de la zone de bruit",
+            "Noise region": "Zone de bruit",
+            "Peak position": "Position du pic",
+            "Download processed chromatogram": "Télécharger le chromatogramme traité",
+        },
+        "EN": {
+            "username": "Username",
+            "password": "Password",
+            "login": "Login",
+            "invalid": "Invalid username or password",
+            "change_pwd": "Change password",
+            "powered": "Powered by BnB",
+            "admin": "Admin panel",
+            "add_user": "Add user",
+            "enter_username": "Enter username",
+            "enter_password": "Enter password",
+            "Upload file": "Upload file",
+            "Upload your chromatogram (CSV, image, or PDF)": "Upload your chromatogram (CSV, image, or PDF)",
+            "Please upload a chromatogram.": "Please upload a chromatogram.",
+            "Invert chromatogram (flip vertically)": "Invert chromatogram (flip vertically)",
+            "Select noise region manually": "Select noise region manually",
+            "Start of noise region": "Start of noise region",
+            "End of noise region": "End of noise region",
+            "Noise region": "Noise region",
+            "Peak position": "Peak position",
+            "Download processed chromatogram": "Download processed chromatogram",
+        },
+    }
     lang = st.session_state.get("lang", "FR")
-    return TEXTS.get(lang, TEXTS["FR"]).get(key, key)
+    return text.get(lang, text["EN"]).get(key, key)
 
-# -------------------------
-# Session defaults
-# -------------------------
-if "lang" not in st.session_state: st.session_state.lang = "FR"
-if "user" not in st.session_state: st.session_state.user = None
-if "role" not in st.session_state: st.session_state.role = None
-if "linear_slope" not in st.session_state: st.session_state.linear_slope = None
-
-# -------------------------
-# PDF generator
-# -------------------------
-def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
-    pdf = FPDF()
-    pdf.add_page()
-    if logo_path and os.path.exists(logo_path):
-        try:
-            pdf.image(logo_path, x=10, y=8, w=25)
-            pdf.set_xy(40, 10)
-        except Exception:
-            pdf.set_xy(10,10)
-    pdf.set_font("Arial","B",14)
-    pdf.cell(0,10,title,ln=1,align="C")
-    pdf.ln(4)
-    pdf.set_font("Arial","",11)
-    for line in lines:
-        pdf.multi_cell(0,7,line)
-    if img_bytes:
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpf:
-                tmpf.write(img_bytes.getvalue() if isinstance(img_bytes, io.BytesIO) else img_bytes)
-                tmpname = tmpf.name
-            pdf.ln(4)
-            pdf.image(tmpname, x=20, w=170)
-        except Exception: pass
-    return pdf.output(dest="S").encode("latin1")
-
-# -------------------------
-# Header
-# -------------------------
-def header_area():
-    cols = st.columns([3,1])
-    with cols[0]:
-        st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
-    with cols[1]:
-        upl = st.file_uploader(t("upload_logo"), type=["png","jpg","jpeg"], key="upload_logo")
-        if upl:
-            try:
-                upl.seek(0)
-                with open(LOGO_FILE,"wb") as f: f.write(upl.read())
-                st.success("Logo saved")
-            except Exception as e:
-                st.warning(f"Logo save error: {e}")
 
 # -------------------------
 # Login screen
 # -------------------------
 def login_screen():
-    st.markdown(f"### 🔐 {t('login')}")
+    st.markdown("<h2 style='text-align:center;'>LabT - Login</h2>", unsafe_allow_html=True)
+
+    lang = st.selectbox("Language / Langue", ["FR", "EN"], key="lang_select")
+    st.session_state.lang = lang
+
     username = st.text_input(t("username"))
     password = st.text_input(t("password"), type="password")
     if st.button(t("login")):
-        uname = (username or "").strip()
+        uname = username.strip()
         matched = find_user_key(uname)
-        if matched and USERS[matched]["password"] == (password or ""):
+        if matched and USERS[matched]["password"] == password:
             st.session_state.user = matched
-            st.session_state.role = USERS[matched].get("role","user")
+            st.session_state.role = USERS[matched].get("role", "user")
+            st.rerun()
         else:
             st.error(t("invalid"))
-    st.markdown(f"<div style='position:fixed;bottom:8px;width:100%;text-align:center;color:gray;font-size:12px'>{t('powered')}</div>", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<div style='text-align:center;color:gray;font-size:12px;margin-top:2em'>{t('powered')}</div>",
+        unsafe_allow_html=True,
+    )
+
 
 # -------------------------
-# Logout
+# Logout button
 # -------------------------
-def logout():
-    st.session_state.user = None
-    st.session_state.role = None
-    st.session_state.linear_slope = None
+def logout_button():
+    if st.button("🚪 Déconnexion / Logout"):
+        for key in ["user", "role"]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
+
 
 # -------------------------
 # Admin panel
 # -------------------------
 def admin_panel():
     st.header(t("admin"))
-    col1,col2 = st.columns([2,1])
-    with col1:
-        st.subheader("Users")
-        sel = st.selectbox("Select user", list(USERS.keys()))
+    col_left, col_right = st.columns([2, 1])
+
+    with col_left:
+        users_list = list(USERS.keys())
+        sel = st.selectbox("Select user", users_list, key="admin_sel_user")
         if sel:
-            info = USERS[sel]
-            st.write(f"User: {sel}, Role: {info.get('role','user')}")
-            new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"pwd_{sel}")
-            new_role = st.selectbox("Role", ["user","admin"], index=0 if info.get("role","user")=="user" else 1, key=f"role_{sel}")
-            if st.button("Save changes"):
-                if new_pwd: USERS[sel]["password"]=new_pwd
-                USERS[sel]["role"]=new_role
+            info = USERS.get(sel, {})
+            st.write(f"**Username:** {sel}")
+            st.write(f"**Role:** {info.get('role', 'user')}")
+            new_pwd = st.text_input(f"New password for {sel}", type="password", key=f"newpwd_{sel}")
+            new_role = st.selectbox("Role", ["user", "admin"], index=0 if info.get("role") == "user" else 1, key=f"role_{sel}")
+            if st.button("Save changes", key=f"save_{sel}"):
+                if new_pwd:
+                    USERS[sel]["password"] = new_pwd
+                USERS[sel]["role"] = new_role
                 save_users(USERS)
-                st.success(f"{sel} updated")
-            if st.button("Delete user"):
-                if sel.lower()=="admin": st.warning("Cannot delete main admin")
-                else:
-                    USERS.pop(sel)
-                    save_users(USERS)
-                    st.success(f"{sel} deleted")
-    with col2:
+                st.success("Updated!")
+                st.rerun()
+            if sel.lower() != "admin" and st.button("Delete user", key=f"del_{sel}"):
+                USERS.pop(sel)
+                save_users(USERS)
+                st.success("Deleted!")
+                st.rerun()
+
+    with col_right:
         st.subheader(t("add_user"))
         new_user = st.text_input(t("enter_username"), key="add_user")
         new_pass = st.text_input(t("enter_password"), type="password", key="add_pass")
-        role = st.selectbox("Role", ["user","admin"], key="add_role")
+        role = st.selectbox("Role", ["user", "admin"], key="add_role")
         if st.button("Add user"):
-            if new_user.strip() and new_pass.strip() and not find_user_key(new_user):
-                USERS[new_user.strip()]={"password":new_pass.strip(),"role":role}
+            if not new_user.strip() or not new_pass.strip():
+                st.warning("Missing info.")
+            elif find_user_key(new_user):
+                st.warning("User exists.")
+            else:
+                USERS[new_user.strip()] = {"password": new_pass.strip(), "role": role}
                 save_users(USERS)
-                st.success(f"User {new_user.strip()} added")
-            else: st.warning("Invalid input or user exists")
+                st.success(f"{new_user.strip()} added!")
+                st.rerun()
+
 
 # -------------------------
-# Homepage
-# -------------------------
-def show_homepage():
-    lang = st.session_state.lang
-    st.subheader("Bienvenue sur LabT !" if lang=="FR" else "Welcome to LabT!")
-    st.write("Ici s'afficheront tes outils d’analyse, de calcul et de visualisation." if lang=="FR" else "Here you'll see your analysis, calculation, and visualization tools.")
-
-# -------------------------
-# Linearity panel
+# Linearity (placeholder)
 # -------------------------
 def linearity_panel():
-    st.header(t("linearity"))
-    company = st.text_input(t("company"), key="company_name")
-    mode = st.radio("Input mode", [t("input_csv"), t("input_manual")], key="lin_input_mode")
-    df = None
-    if mode==t("input_csv"):
-        uploaded = st.file_uploader(t("input_csv"), type=["csv"], key="lin_csv")
-        if uploaded:
-            uploaded.seek(0)
-            try:
-                df0 = pd.read_csv(uploaded)
-            except Exception:
-                uploaded.seek(0)
-                df0 = pd.read_csv(uploaded, sep=';', engine='python')
-            cols_low = [c.lower() for c in df0.columns]
-            if "concentration" in cols_low and "signal" in cols_low:
-                df = df0.rename(columns={df0.columns[cols_low.index("concentration")]: "Concentration",
-                                         df0.columns[cols_low.index("signal")]: "Signal"})
-            elif len(df0.columns)>=2:
-                df = df0.iloc[:, :2].copy()
-                df.columns = ["Concentration","Signal"]
+    st.header("📈 Linéarité")
+    st.info("Section à venir — collez ici le code complet de la linéarité existant.")
+
+
+# -------------------------
+# Signal/Noise panel
+# -------------------------
+def sn_panel():
+    st.header("📊 S/N (Signal / Bruit)")
+
+    file = st.file_uploader(
+        t("Upload your chromatogram (CSV, image, or PDF)"),
+        type=["csv", "png", "jpg", "jpeg", "pdf"]
+    )
+
+    if not file:
+        st.info(t("Please upload a chromatogram."))
+        return
+
+    invert = st.checkbox(t("Invert chromatogram (flip vertically)"), value=True)
+    use_sliders = st.checkbox(t("Select noise region manually"), value=True)
+
+    img = None
+    x = None
+    y = None
+
+    # --- CSV file ---
+    if file.name.lower().endswith(".csv"):
+        df = pd.read_csv(file, sep=None, engine="python")
+        df.columns = [c.strip().lower() for c in df.columns]
+        time_col = next((c for c in df.columns if "time" in c), None)
+        signal_col = next((c for c in df.columns if "signal" in c or "intensity" in c), None)
+        if time_col and signal_col:
+            x = df[time_col].values
+            y = df[signal_col].values
+        else:
+            st.error("Missing columns.")
+            return
+
+    # --- PDF ---
+    elif file.name.lower().endswith(".pdf"):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            tmp_pdf.write(file.read())
+            tmp_pdf_path = tmp_pdf.name
+        pdf_doc = fitz.open(tmp_pdf_path)
+        page = pdf_doc[0]
+        pix = page.get_pixmap()
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+        pdf_doc.close()
+
+    # --- Image ---
     else:
-        cols = st.columns(2)
-        conc_input = cols[0].text_area("Concentrations (comma separated)", height=120, key="lin_manual_conc")
-        sig_input = cols[1].text_area("Signals (comma separated)", height=120, key="lin_manual_sig")
-        try:
-            concs = [float(c.replace(",",".")) for c in conc_input.split(",") if c.strip()]
-            sigs = [float(s.replace(",",".")) for s in sig_input.split(",") if s.strip()]
-            if len(concs)==len(sigs) and len(concs)>=2:
-                df=pd.DataFrame({"Concentration":concs,"Signal":sigs})
-            else:
-                st.warning("Check data length")
-        except Exception as e: st.error(f"Manual parse error: {e}")
+        img = Image.open(file)
 
-    if df is None or len(df)<2: st.info("Please provide data (CSV or manual)"); return
-    try:
-        df["Concentration"]=pd.to_numeric(df["Concentration"])
-        df["Signal"]=pd.to_numeric(df["Signal"])
-    except: st.error("Data must be numeric"); return
+    if img is not None:
+        if invert:
+            img = ImageOps.flip(img)
+        st.image(img, caption="Chromatogram (processed)", use_container_width=True)
+        img_array = np.array(img.convert("L"))
+        y = np.mean(img_array, axis=1)
+        x = np.arange(len(y))
 
-    coeffs=np.polyfit(df["Concentration"],df["Signal"],1)
-    slope, intercept = float(coeffs[0]), float(coeffs[1])
-    y_pred=np.polyval(coeffs,df["Concentration"])
-    r2 = float(1 - np.sum((df["Signal"]-y_pred)**2)/np.sum((df["Signal"]-np.mean(df["Signal"]))**2))
-    st.session_state.linear_slope = slope
+    st.subheader("Noise region")
+    if use_sliders:
+        start_noise = st.slider("Start", 0, len(y)-2, int(len(y)*0.1))
+        end_noise = st.slider("End", start_noise+1, len(y)-1, int(len(y)*0.2))
+    else:
+        start_noise, end_noise = 0, int(len(y)*0.2)
 
-    st.metric("Slope", f"{slope:.6f}")
-    st.metric("Intercept", f"{intercept:.6f}")
-    st.metric("R²", f"{r2:.4f}")
+    noise_region = y[start_noise:end_noise]
+    noise_std = np.std(noise_region)
 
-    fig, ax = plt.subplots(figsize=(7,3))
-    ax.scatter(df["Concentration"],df["Signal"],label="Data")
-    xs = np.linspace(df["Concentration"].min(), df["Concentration"].max(), 120)
-    ax.plot(xs,slope*xs+intercept,color="red",label="Fit")
-    ax.set_xlabel(f"{t('concentration')} ({st.selectbox(t('unit'), ['µg/mL','mg/mL','ng/mL'], index=0)})")
-    ax.set_ylabel(t("signal"))
+    peak_index = np.argmax(y)
+    H = np.max(y)
+    baseline = np.min(y)
+    h = H - baseline
+
+    half_max = baseline + h/2
+    indices_above_half = np.where(y >= half_max)[0]
+    w_half = indices_above_half[-1] - indices_above_half[0] if len(indices_above_half)>1 else 0
+    sn_ratio = h / (noise_std * 2) if noise_std>0 else np.nan
+
+    fig, ax = plt.subplots()
+    ax.plot(x, y, label="Chromatogram")
+    ax.axvspan(start_noise, end_noise, color="gray", alpha=0.3, label=t("Noise region"))
+    ax.axhline(half_max, color="orange", linestyle="--", label="½ Height")
+    ax.axvline(peak_index, color="red", linestyle="--", label=t("Peak position"))
+    ax.text(peak_index, H, f"H={H:.1f}\nh={h:.1f}\nw½={w_half:.1f}", color="red", fontsize=8)
     ax.legend()
     st.pyplot(fig)
 
-    val = st.number_input("Enter value", format="%.6f", key="lin_unknown", value=0.0)
-    calc_choice = st.radio("Calculate", [f"{t('signal')} → {t('concentration')}", f"{t('concentration')} → {t('signal')}"], key="lin_calc_choice")
-    try:
-        if calc_choice.startswith(t("signal")): st.success(f"Concentration = {(val-intercept)/slope:.6f}")
-        else: st.success(f"Signal = {slope*val+intercept:.6f}")
-    except: st.error("Compute error")
+    st.markdown(f"**H:** {H:.2f} **h:** {h:.2f} **w½:** {w_half:.2f} **σ(noise):** {noise_std:.4f} **S/N:** {sn_ratio:.2f}")
 
-    with st.expander(t("formulas"), expanded=False):
-        st.markdown(r"**Linearity:** \( y = slope \cdot X + intercept \)  \n**LOD:** \( 3.3 \sigma/slope \)  \n**LOQ:** \( 10 \sigma/slope \)")
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    st.download_button(t("Download processed chromatogram"), buf.getvalue(), file_name="chromato_processed.png", mime="image/png")
 
-    csv_buf=io.StringIO(); df.to_csv(csv_buf,index=False)
-    st.download_button(t("download_csv"), csv_buf.getvalue(), "linearity.csv","text/csv")
-
-    if st.button(t("generate_pdf"), key="lin_pdf"):
-        if not company.strip(): st.warning(t("company_missing")); return
-        buf = io.BytesIO(); fig.savefig(buf, format="png"); buf.seek(0)
-        lines=[f"Company: {company}", f"User: {st.session_state.user}", f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-               f"Slope: {slope:.6f}", f"Intercept: {intercept:.6f}", f"R²: {r2:.4f}"]
-        pdf_bytes=generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=LOGO_FILE if os.path.exists(LOGO_FILE) else None)
-        st.download_button(t("download_pdf"), pdf_bytes, "linearity_report.pdf","application/pdf")
 
 # -------------------------
-# S/N panel
+# Main app
 # -------------------------
-def sn_panel_full():
-    st.header(t("sn"))
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"])
-    if not uploaded:
-        st.info("Manual S/N calculation")
-        H = st.number_input("H (peak height)", value=0.0)
-        h = st.number_input("h (noise)", value=0.0)
-        slope_input = st.number_input("Slope", value=0.0)
-        st.write(f"S/N Classic: {H/h if h!=0 else float('nan'):.4f}")
-        st.write(f"S/N USP: {2*H/h if h!=0 else float('nan'):.4f}")
-        if slope_input: st.write(f"LOD: {3.3*h/slope_input:.6f}, LOQ: {10*h/slope_input:.6f}")
-        return
-    name = uploaded.name.lower()
-    df = None
-    # CSV
-    if name.endswith(".csv"):
-        uploaded.seek(0)
-        try: df0=pd.read_csv(uploaded)
-        except: uploaded.seek(0); df0=pd.read_csv(uploaded,sep=";",engine="python")
-        cols_low=[c.lower() for c in df0.columns]
-        if "time" in cols_low and "signal" in cols_low:
-            df=df0.rename(columns={df0.columns[cols_low.index("time")]: "X",
-                                   df0.columns[cols_low.index("signal")]: "Y"})
-        else:
-            df=df0.iloc[:, :2].copy(); df.columns=["X","Y"]
-        df["X"]=pd.to_numeric(df["X"], errors="coerce")
-        df["Y"]=pd.to_numeric(df["Y"], errors="coerce")
-    else:
-        img = Image.open(uploaded).convert("RGB")
-        st.image(img, use_column_width=True)
-        if pytesseract:
-            try:
-                text = pytesseract.image_to_string(img)
-                data=[]
-                for line in text.splitlines():
-                    parts=[p.replace(",","." ) for p in line.split() if p.strip()]
-                    if len(parts)>=2:
-                        try: data.append((float(parts[0]),float(parts[1])))
-                        except: continue
-                if data: df=pd.DataFrame(data, columns=["X","Y"])
-            except: pass
-        if df is None and name.endswith(".pdf") and convert_from_bytes:
-            pages = convert_from_bytes(uploaded.read())
-            for page in pages:
-                page = page.convert("RGB")
-                if pytesseract:
-                    try:
-                        text = pytesseract.image_to_string(page)
-                        data=[]
-                        for line in text.splitlines():
-                            parts=[p.replace(",","." ) for p in line.split() if p.strip()]
-                            if len(parts)>=2:
-                                try: data.append((float(parts[0]),float(parts[1])))
-                                except: continue
-                        if data: df=pd.DataFrame(data, columns=["X","Y"]); break
-                    except: pass
+def main_app():
+    logout_button()
 
-    if df is None or len(df)<2: st.warning("Could not read data"); return
-    # Basic S/N
-    y = df["Y"].values
-    smoothed = gaussian_filter1d(y, sigma=2)
-    peaks,_ = find_peaks(smoothed)
-    if len(peaks)==0: st.warning("No peaks detected"); return
-    H = max(smoothed[peaks])-np.median(smoothed)
-    h = np.std(smoothed)
-    slope_val = st.session_state.linear_slope or 1.0
-    st.write(f"S/N Classic: {H/h:.4f}")
-    st.write(f"S/N USP: {2*H/h:.4f}")
-    st.write(f"LOD: {3.3*h/slope_val:.6f}, LOQ: {10*h/slope_val:.6f}")
-
-# -------------------------
-# Main App
-# -------------------------
-def run():
-    header_area()
-    if st.session_state.user is None:
-        login_screen()
-        return
-    st.sidebar.button(t("logout"), on_click=logout)
-    page = st.sidebar.selectbox(t("select_section"), [t("linearity"), t("sn"), t("admin")])
-    if page==t("linearity"):
+    page = st.radio("Choisir la section / Choose section", ["Linéarité", "S/N", "Admin"])
+    if page == "Linéarité":
         linearity_panel()
-    elif page==t("sn"):
-        sn_panel_full()
-    elif page==t("admin") and st.session_state.role=="admin":
+    elif page == "S/N":
+        sn_panel()
+    elif page == "Admin" and st.session_state.role == "admin":
         admin_panel()
     else:
-        st.info("Restricted")
+        st.warning("Vous n'avez pas les droits d'accès.")
 
-if __name__=="__main__":
+
+# -------------------------
+# Run
+# -------------------------
+def run():
+    if "user" not in st.session_state:
+        login_screen()
+    else:
+        main_app()
+
+
+if __name__ == "__main__":
     run()
