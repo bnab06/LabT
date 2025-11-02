@@ -1,351 +1,204 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-from fpdf import FPDF
-from PIL import Image, ImageOps
-import io
-import json
-import os
 from datetime import datetime
+from PIL import Image
+import cv2
+from fpdf import FPDF
+import json
+from pdf2image import convert_from_bytes
 
-# -------------------------
-# Users helpers
-# -------------------------
-USERS_FILE = "users.json"
-LOGO_FILE = "logo_labt.png"
+# ===============================
+# INITIALISATION SESSION
+# ===============================
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = ""
+if "role" not in st.session_state:
+    st.session_state["role"] = ""
+if "feedback_list" not in st.session_state:
+    st.session_state["feedback_list"] = []
+if "slope_linearity" not in st.session_state:
+    st.session_state["slope_linearity"] = 1.0
 
+# ===============================
+# UTILITIES
+# ===============================
 def load_users():
     try:
-        with open(USERS_FILE,"r",encoding="utf-8") as f:
+        with open("users.json","r") as f:
             return json.load(f)
-    except Exception:
-        default = {"admin":{"password":"admin","role":"admin"},"user":{"password":"user","role":"user"}}
-        try:
-            with open(USERS_FILE,"w",encoding="utf-8") as f:
-                json.dump(default,f,indent=4,ensure_ascii=False)
-        except:
-            pass
-        return default
+    except:
+        return {"admin":{"password":"admin","role":"admin"}, "user":{"password":"user","role":"user"}}
 
-def save_users(users):
-    with open(USERS_FILE,"w",encoding="utf-8") as f:
-        json.dump(users,f,indent=4,ensure_ascii=False)
+users_db = load_users()
 
-USERS = load_users()
-
-def find_user_key(username):
-    if username is None:
-        return None
-    for u in USERS.keys():
-        if u.lower() == username.strip().lower():
-            return u
-    return None
-
-# -------------------------
-# Translations
-# -------------------------
-TEXTS = {
-    "FR":{
-        "app_title":"LabT",
-        "powered":"Propulsé par BnB",
-        "username":"Utilisateur",
-        "password":"Mot de passe",
-        "login":"Connexion",
-        "logout":"Déconnexion",
-        "invalid":"Identifiants invalides",
-        "linearity":"Linéarité",
-        "sn":"S/N",
-        "admin":"Admin",
-        "company":"Nom de la compagnie",
-        "input_csv":"CSV",
-        "input_manual":"Saisie manuelle",
-        "concentration":"Concentration",
-        "signal":"Signal",
-        "unit":"Unité",
-        "generate_pdf":"Générer PDF",
-        "download_pdf":"Télécharger PDF",
-        "download_csv":"Télécharger CSV",
-        "sn_classic":"S/N Classique",
-        "sn_usp":"S/N USP",
-        "lod":"LOD (conc.)",
-        "loq":"LOQ (conc.)",
-        "formulas":"Formules",
-        "select_region":"Sélectionner la zone",
-        "add_user":"Ajouter utilisateur",
-        "delete_user":"Supprimer utilisateur",
-        "modify_user":"Modifier mot de passe",
-        "enter_username":"Nom d'utilisateur",
-        "enter_password":"Mot de passe (simple)",
-        "upload_chrom":"Importer chromatogramme (CSV, PNG, JPG, PDF)",
-        "digitize_info":"Digitizing : OCR tenté si pytesseract installé (best-effort)",
-        "export_sn_pdf":"Exporter S/N PDF",
-        "download_original_pdf":"Télécharger PDF original",
-        "change_pwd":"Changer mot de passe (hors session)",
-        "compute":"Compute",
-        "company_missing":"Veuillez saisir le nom de la compagnie avant de générer le rapport.",
-        "select_section":"Section",
-        "upload_logo":"Uploader un logo (optionnel)"
-    },
-    "EN":{
-        "app_title":"LabT",
-        "powered":"Powered by BnB",
-        "username":"Username",
-        "password":"Password",
-        "login":"Login",
-        "logout":"Logout",
-        "invalid":"Invalid credentials",
-        "linearity":"Linearity",
-        "sn":"S/N",
-        "admin":"Admin",
-        "company":"Company name",
-        "input_csv":"CSV",
-        "input_manual":"Manual input",
-        "concentration":"Concentration",
-        "signal":"Signal",
-        "unit":"Unit",
-        "generate_pdf":"Generate PDF",
-        "download_pdf":"Download PDF",
-        "download_csv":"Download CSV",
-        "sn_classic":"S/N Classic",
-        "sn_usp":"S/N USP",
-        "lod":"LOD (conc.)",
-        "loq":"LOQ (conc.)",
-        "formulas":"Formulas",
-        "select_region":"Select region",
-        "add_user":"Add user",
-        "delete_user":"Delete user",
-        "modify_user":"Modify password",
-        "enter_username":"Username",
-        "enter_password":"Password (simple)",
-        "upload_chrom":"Upload chromatogram (CSV, PNG, JPG, PDF)",
-        "digitize_info":"Digitizing: OCR attempted if pytesseract available (best-effort)",
-        "export_sn_pdf":"Export S/N PDF",
-        "download_original_pdf":"Download original PDF",
-        "change_pwd":"Change password (outside session)",
-        "compute":"Compute",
-        "company_missing":"Please enter company name before generating the report.",
-        "select_section":"Section",
-        "upload_logo":"Upload logo (optional)"
-    }
-}
-
-def t(key):
-    lang = st.session_state.get("lang","FR")
-    return TEXTS.get(lang,TEXTS["FR"]).get(key,key)
-
-# -------------------------
-# Session defaults
-# -------------------------
-if "lang" not in st.session_state:
-    st.session_state.lang = "FR"
-if "user" not in st.session_state:
-    st.session_state.user = None
-if "role" not in st.session_state:
-    st.session_state.role = None
-if "linear_slope" not in st.session_state:
-    st.session_state.linear_slope = None
-
-# -------------------------
-# Login page
-# -------------------------
+# ===============================
+# PAGE DE LOGIN
+# ===============================
 def login_page():
-    st.title("🧪 LabT")
-    st.subheader(t("login"))
-    st.text(t("powered"))
+    st.title("LabT Application")
+    st.subheader("Login / Connexion")
+    st.caption("Powered by: BnB")
 
-    username = st.text_input(t("username"))
-    password = st.text_input(t("password"), type="password")
-    if st.button(t("login")):
-        uname = (username or "").strip()
-        matched = find_user_key(uname)
-        if matched and USERS[matched]["password"] == (password or ""):
-            st.session_state.user = matched
-            st.session_state.role = USERS[matched].get("role","user")
-            st.experimental_rerun()
+    username = st.text_input("Username / Nom d'utilisateur").strip().lower()
+    password = st.text_input("Password / Mot de passe", type="password")
+
+    if st.button("Login / Se connecter"):
+        if username in users_db and users_db[username]["password"] == password:
+            st.session_state["logged_in"] = True
+            st.session_state["username"] = username
+            st.session_state["role"] = users_db[username]["role"]
+            st.success(f"Welcome {username} / Bienvenue {username}")
         else:
-            st.error(t("invalid"))
+            st.error("Invalid credentials / Identifiants invalides")
 
-# -------------------------
-# Linearity panel
-# -------------------------
+def logout():
+    st.session_state["logged_in"] = False
+    st.session_state["username"] = ""
+    st.session_state["role"] = ""
+    st.experimental_rerun()
+# ===============================
+# LINEARITE
+# ===============================
 def linearity_panel():
-    st.header(t("linearity"))
-    company = st.text_input(t("company"),key="company_name")
+    st.subheader("Linearity / Linéarité")
 
-    mode = st.radio("Input mode",[t("input_csv"),t("input_manual")],key="lin_input_mode")
-    df = None
-    if mode == t("input_csv"):
-        uploaded = st.file_uploader(t("input_csv"),type=["csv"],key="lin_csv")
-        if uploaded:
-            try:
-                uploaded.seek(0)
-                df0 = pd.read_csv(uploaded)
-                cols_low = [c.lower() for c in df0.columns]
-                if "concentration" in cols_low and "signal" in cols_low:
-                    df = df0.rename(columns={df0.columns[cols_low.index("concentration")]:"Concentration",
-                                             df0.columns[cols_low.index("signal")]:"Signal"})
-                elif len(df0.columns)>=2:
-                    df = df0.iloc[:,:2].copy()
-                    df.columns=["Concentration","Signal"]
-                else:
-                    st.error("CSV must contain at least two columns (concentration, signal).")
-            except Exception as e:
-                st.error(f"CSV error: {e}")
-    else:
-        st.caption("Enter concentrations and signals (comma separated)")
-        cols = st.columns(2)
-        conc_input = cols[0].text_area("Concentrations",height=120,key="lin_manual_conc")
-        sig_input = cols[1].text_area("Signals",height=120,key="lin_manual_sig")
+    # --- Upload CSV ---
+    csv_file = st.file_uploader("Upload linearity CSV", type=["csv"])
+    if csv_file:
         try:
-            concs = [float(c.replace(",",".").strip()) for c in conc_input.split(",") if c.strip()]
-            sigs = [float(s.replace(",",".").strip()) for s in sig_input.split(",") if s.strip()]
-            if len(concs)!=len(sigs):
-                st.error("Number of concentrations and signals must match")
-            elif len(concs)<2:
-                st.warning("At least two pairs are required")
-            else:
-                df = pd.DataFrame({"Concentration":concs,"Signal":sigs})
-        except Exception as e:
-            if conc_input.strip() or sig_input.strip():
-                st.error(f"Manual parse error: {e}")
+            df = pd.read_csv(csv_file)
+            st.write(df)
+            x = df['Concentration']
+            y = df['Signal']
+            slope, intercept = np.polyfit(x, y, 1)
+            st.session_state["slope_linearity"] = slope
+            st.line_chart({"Concentration": x, "Signal": slope*x + intercept})
+            st.write(f"Slope / Pente: {slope:.4f}")
+        except:
+            st.error("Error reading CSV / Erreur lecture CSV")
 
-    if df is None:
-        st.info("Provide data")
-        return
+    # --- Manual input ---
+    conc_input = st.text_input("Concentrations (comma separated) / Concentrations séparées par des virgules")
+    signal_input = st.text_input("Signals (comma separated) / Signaux séparés par des virgules")
+    if conc_input and signal_input:
+        try:
+            x = np.array([float(v) for v in conc_input.split(",")])
+            y = np.array([float(v) for v in signal_input.split(",")])
+            slope, intercept = np.polyfit(x, y, 1)
+            st.session_state["slope_linearity"] = slope
+            st.line_chart({"Concentration": x, "Signal": slope*x + intercept})
+            st.write(f"Slope / Pente: {slope:.4f}")
+        except:
+            st.error("Invalid manual input / Valeurs invalides")
 
-    df["Concentration"] = pd.to_numeric(df["Concentration"])
-    df["Signal"] = pd.to_numeric(df["Signal"])
-    coeffs = np.polyfit(df["Concentration"].values, df["Signal"].values,1)
-    slope = float(coeffs[0])
-    intercept = float(coeffs[1])
-    st.session_state.linear_slope = slope
-    st.write(f"Slope = {slope:.6f}, Intercept = {intercept:.6f}")
+    # --- Signal <-> Concentration unknowns ---
+    st.write("Calculate unknown / Calcul concentration <-> signal")
+    unknown_signal = st.number_input("Unknown signal / Signal inconnu")
+    unknown_conc = st.number_input("Unknown concentration / Concentration inconnue")
+    if st.button("Compute concentration from signal / Calculer concentration à partir du signal"):
+        if slope != 0:
+            conc = (unknown_signal - intercept)/slope
+            st.write(f"Estimated concentration / Concentration estimée: {conc:.4f}")
+    if st.button("Compute signal from concentration / Calculer signal à partir de la concentration"):
+        sig = slope*unknown_conc + intercept
+        st.write(f"Estimated signal / Signal estimé: {sig:.4f}")
 
-    fig, ax = plt.subplots()
-    ax.scatter(df["Concentration"],df["Signal"],label="Data")
-    ax.plot(df["Concentration"],slope*df["Concentration"]+intercept,"r--",label="Fit")
-    ax.set_xlabel("Concentration")
-    ax.set_ylabel("Signal")
-    ax.legend()
-    st.pyplot(fig)
-
-# -------------------------
-# S/N panel
-# -------------------------
+    # --- Unit dropdown ---
+    unit = st.selectbox("Unit / Unité", ["mg/mL","µg/mL","ppm"])
+# ===============================
+# SIGNAL-TO-NOISE & FEEDBACK
+# ===============================
 def sn_panel():
-    st.header(t("sn"))
-    uploaded = st.file_uploader(t("upload_chrom"),type=["csv","png","jpg","jpeg","pdf"],key="sn_file")
+    st.subheader("Signal-to-Noise / Rapport Signal sur Bruit")
 
-    slope_choice = st.radio("Slope source",["Use linearity slope","Enter manually"],key="sn_slope_choice")
-    if slope_choice=="Use linearity slope":
-        slope_input = st.session_state.linear_slope or 0.0
-    else:
-        slope_input = st.number_input("Slope manual",value=0.0,format="%.6f",key="sn_slope_manual")
-
-    # Manual calculation
-    if uploaded is None:
-        st.info("Manual S/N calculation")
-        H = st.number_input("H (peak height)",value=0.0,format="%.6f",key="manual_H")
-        h = st.number_input("h (noise)",value=0.0,format="%.6f",key="manual_h")
-        sn_classic = H/h if h!=0 else float("nan")
-        sn_usp = 2*H/h if h!=0 else float("nan")
-        lod = 3.3*h/slope_input if slope_input!=0 else float("nan")
-        loq = 10*h/slope_input if slope_input!=0 else float("nan")
-        st.write(f"S/N Classic: {sn_classic:.4f}")
-        st.write(f"S/N USP: {sn_usp:.4f}")
-        st.write(f"LOD: {lod:.6f}, LOQ: {loq:.6f}")
-        return
-
-    try:
-        # Convert to image and invert
-        img = Image.open(uploaded).convert("L")
-        img_inv = ImageOps.invert(img)
-        arr = np.array(img_inv)
-        signal = arr.max(axis=0).astype(float)
-        x = np.arange(len(signal))
-    except Exception as e:
-        st.error(f"Image processing failed: {e}")
-        return
-
-    min_idx = int(x[0])
-    max_idx = int(x[-1])
-    sel_idx = st.slider(t("select_region"), min_value=min_idx,max_value=max_idx,value=(min_idx,max_idx),key="sn_slider")
-    noise_region = signal[sel_idx[0]:sel_idx[1]] if sel_idx[1]>sel_idx[0] else signal
-    h = noise_region.std() if len(noise_region)>0 else 1.0
-    H = signal.max()
-    sn_classic = H/h if h!=0 else float("nan")
-    sn_usp = 2*H/h if h!=0 else float("nan")
-    lod = 3.3*h/slope_input if slope_input!=0 else float("nan")
-    loq = 10*h/slope_input if slope_input!=0 else float("nan")
-    peak_idx = np.argmax(signal)
-    tR = x[peak_idx]
-
-    st.write(f"H = {H:.4f}, h = {h:.4f}, tR = {tR}")
-    st.write(f"S/N Classic = {sn_classic:.4f}, S/N USP = {sn_usp:.4f}")
-    st.write(f"LOD = {lod:.6f}, LOQ = {loq:.6f}")
-
-    # Plot
-    fig, ax = plt.subplots(figsize=(10,4))
-    ax.plot(x,signal,label="Chromatogram")
-    ax.axhline(H/2,color="r",linestyle="--",label="H/2")
-    ax.axvline(peak_idx,color="g",linestyle="--",label=f"tR = {tR}")
-    ax.set_xlabel("Pixel / Time")
-    ax.set_ylabel("Signal")
-    ax.legend()
-    st.pyplot(fig)
-
-    if st.checkbox(t("formulas"),key="show_formulas"):
-        st.markdown("""
-        - S/N Classic = H / h  
-        - S/N USP = 2 * H / h  
-        - LOD = 3.3 * h / slope  
-        - LOQ = 10 * h / slope  
-        - tR = retention time of main peak
-        """)
-
-# -------------------------
-# Feedback page
-# -------------------------
-def feedback_panel():
-    st.header("Feedback / Suggestions")
-    name = st.text_input("Name / Nom")
-    message = st.text_area("Message / Message")
-    if st.button("Send / Envoyer"):
-        if name.strip() and message.strip():
-            if not os.path.exists("feedback.csv"):
-                df_fb = pd.DataFrame(columns=["Name","Message","Date"])
-            else:
-                df_fb = pd.read_csv("feedback.csv")
-            df_fb = pd.concat([df_fb,pd.DataFrame({"Name":[name],"Message":[message],"Date":[datetime.now()]})],ignore_index=True)
-            df_fb.to_csv("feedback.csv",index=False)
-            st.success("Message sent / Envoyé")
+    # --- Upload image ---
+    uploaded_image = st.file_uploader("Upload chromatogram image / Importer chromatogramme", type=["png","jpg","jpeg","pdf"])
+    img = None
+    if uploaded_image:
+        if uploaded_image.name.endswith(".pdf"):
+            pages = convert_from_bytes(uploaded_image.read())
+            img = pages[0]
         else:
-            st.warning("Please enter name and message / Veuillez remplir nom et message")
+            img = Image.open(uploaded_image)
 
-# -------------------------
-# Main
-# -------------------------
-def main_app():
-    if st.session_state.user is None:
-        login_page()
+        img_gray = img.convert("L")
+        img_array = np.array(img_gray)
+        img_inv = 255 - img_array  # inversion
+        st.image(Image.fromarray(img_inv), caption="Processed image / Image traitée", use_column_width=True)
+
+        # Find peak
+        peak_idx = np.argmax(img_inv)
+        peak_val = img_inv.flatten()[peak_idx]
+        peak_coords = np.unravel_index(peak_idx, img_inv.shape)
+        st.write(f"Peak max / Pic principal: {peak_val}, position: {peak_coords}")
+
+        # Red dot
+        img_marked = cv2.cvtColor(img_inv, cv2.COLOR_GRAY2BGR)
+        cv2.circle(img_marked, (peak_coords[1], peak_coords[0]), 5, (0,0,255), -1)
+        st.image(Image.fromarray(img_marked), caption="Peak marked / Pic marqué", use_column_width=True)
+
+    # Manual S/N
+    st.write("Manual S/N calculation / Calcul manuel")
+    H = st.number_input("Peak height H / Hauteur pic H", value=0.0)
+    h = st.number_input("Noise height h / Hauteur bruit h", value=0.0)
+    s_n_manual = H/h if h!=0 else 0
+    st.write(f"S/N = H/h : {s_n_manual:.2f}")
+
+    # LOQ/LOD
+    unit = st.selectbox("Unit for LOQ/LOD / Unité pour LOQ/LOD", ["mg/mL","µg/mL","ppm"])
+    slope = st.session_state.get("slope_linearity", 1.0)
+    LOQ = 10*h/slope if slope!=0 else 0
+    LOD = 3.3*h/slope if slope!=0 else 0
+    st.write(f"LOQ: {LOQ:.5f} {unit}, LOD: {LOD:.5f} {unit}")
+
+# Feedback
+def feedback_panel():
+    st.subheader("Feedback / Retours utilisateurs")
+    user_name = st.session_state.get("username","anonymous")
+    feedback_text = st.text_area("Your feedback / Votre retour")
+    if st.button("Send / Envoyer"):
+        fb = {"user":user_name,"text":feedback_text,"response":""}
+        st.session_state["feedback_list"].append(fb)
+        st.success("Feedback sent / Retour envoyé")
+
+    st.write("All feedbacks / Tous les retours :")
+    for fb in st.session_state["feedback_list"]:
+        st.markdown(f"**{fb['user']}**: {fb['text']}")
+        if fb['response']:
+            st.markdown(f"Admin response: {fb['response']}")
+
+# Admin feedback
+def admin_feedback_panel():
+    st.subheader("Admin feedback management / Gestion des retours")
+    if st.session_state.get("role") != "admin":
+        st.warning("Admin only / Réservé à l'admin")
         return
-    st.sidebar.title("LabT")
-    if st.sidebar.button(t("logout")):
-        st.session_state.user = None
-        st.session_state.role = None
-        st.experimental_rerun()
-    page = st.sidebar.radio(t("select_section"),[t("linearity"),t("sn"),"Feedback"])
-    if page==t("linearity"):
-        linearity_panel()
-    elif page==t("sn"):
-        sn_panel()
+    for idx, fb in enumerate(st.session_state["feedback_list"]):
+        st.markdown(f"**{fb['user']}**: {fb['text']}")
+        resp = st.text_input(f"Response to {fb['user']}", value=fb['response'], key=f"resp{idx}")
+        if st.button(f"Save response {idx}"):
+            st.session_state["feedback_list"][idx]["response"] = resp
+            st.success("Response saved / Réponse sauvegardée")
+
+# ===============================
+# MAIN APP
+# ===============================
+def main_app():
+    if not st.session_state["logged_in"]:
+        login_page()
     else:
+        st.sidebar.button("Logout / Déconnexion", on_click=logout)
+        role = st.session_state["role"]
+        st.write(f"Logged in as {st.session_state['username']} ({role})")
+        
+        linearity_panel()
+        sn_panel()
         feedback_panel()
+        if role=="admin":
+            admin_feedback_panel()
 
-def run():
-    main_app()
-
-if __name__=="__main__":
-    run()
+# Run
+main_app()
