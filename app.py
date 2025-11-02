@@ -3,180 +3,233 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
+from scipy.signal import find_peaks
+from PIL import Image, ImageOps
 import io
+from fpdf import FPDF
+import json
 
-# ----------------------------
-# SESSION STATE INIT
-# ----------------------------
-if "linear_slope" not in st.session_state:
-    st.session_state.linear_slope = None
-
-# ----------------------------
-# TRANSLATIONS
-# ----------------------------
-def t(text):
-    # Simplified: return text as-is
-    return text
-
-# ----------------------------
-# PAGE LOGIN
-# ----------------------------
+# ------------------------------
+# Connexion (JSON) avec Powered by BnB
+# ------------------------------
 def login_page():
-    st.title(t("Login / Connexion"))
-    username = st.text_input(t("Username / Nom d'utilisateur"))
-    password = st.text_input(t("Password / Mot de passe"), type="password")
-    login_btn = st.button(t("Login / Se connecter"))
-    st.markdown("<p style='font-size:0.7em;text-align:center;'>Powered by BnB</p>", unsafe_allow_html=True)
-    if login_btn:
-        # Here, dummy auth
-        if username == "admin" and password == "admin":
-            st.session_state.logged_in = True
+    st.title("LabT Login / Connexion")
+    st.markdown("**Powered by BnB**")
+    
+    users_file = "users.json"
+    with open(users_file, "r") as f:
+        users = json.load(f)
+    
+    username = st.text_input("Username / Nom d'utilisateur")
+    password = st.text_input("Password / Mot de passe", type="password")
+    
+    if st.button("Login / Se connecter"):
+        if username in users and users[username] == password:
+            st.session_state['logged_in'] = True
+            st.session_state['username'] = username
             st.experimental_rerun()
         else:
-            st.error(t("Invalid credentials / Identifiants invalides"))
+            st.error("Invalid credentials / Identifiants invalides")
 
-# ----------------------------
-# LINEARITY PANEL (unchanged)
-# ----------------------------
+# ------------------------------
+# Linéarité inchangée
+# ------------------------------
 def linearity_panel():
-    st.header(t("Linearity"))
-    uploaded = st.file_uploader(t("Upload CSV (Time,Signal,Conc)"), type=["csv"])
-    if uploaded:
-        try:
-            df = pd.read_csv(uploaded)
-            st.write(df.head())
-            # simple linear regression
-            if "Signal" in df.columns and "Conc" in df.columns:
-                slope = np.polyfit(df["Conc"], df["Signal"], 1)[0]
-                st.session_state.linear_slope = slope
-                st.write(f"Slope / Pente: {slope:.6f}")
-        except Exception as e:
-            st.error(f"Error reading CSV: {e}")
-
-# ----------------------------
-# S/N PANEL ENHANCED
-# ----------------------------
-def sn_panel():
-    st.header(t("Signal to Noise / Rapport Signal/Bruit"))
-    uploaded = st.file_uploader(t("Upload chromatogram (CSV, PNG, JPG, JPEG, PDF)"), type=["csv","png","jpg","jpeg","pdf"])
-    mode_manual = st.checkbox("Manual S/N calculation (H,h,slope)", value=False)
+    st.header("Linearity / Linéarité")
+    st.info("Linéarité inchangée. CSV ou saisie manuelle")
     
-    # --- Variables ---
-    H = h = slope = 0.0
-    sn_classic = sn_usp = lod = loq = np.nan
-    peak_x = 0.0
+    csv_file = st.file_uploader("Upload CSV (X=Concentration, Y=Signal)", type=["csv"])
+    manual_input = st.checkbox("Manual input / Saisie manuelle")
+    
+    if csv_file:
+        df = pd.read_csv(csv_file)
+        st.dataframe(df)
+    elif manual_input:
+        conc = st.text_input("Enter concentrations (comma separated)", "")
+        sig = st.text_input("Enter signals (comma separated)", "")
+        if conc and sig:
+            conc_list = [float(c.strip()) for c in conc.split(",")]
+            sig_list = [float(s.strip()) for s in sig.split(",")]
+            df = pd.DataFrame({"Concentration": conc_list, "Signal": sig_list})
+            st.dataframe(df)
+    
+    # Calcul inconnu
+    st.subheader("Unknown / Inconnu")
+    unknown_signal = st.number_input("Enter unknown signal", value=0.0)
+    if 'df' in locals() and not df.empty:
+        slope, intercept = np.polyfit(df["Concentration"], df["Signal"], 1)
+        unknown_conc = (unknown_signal - intercept)/slope
+        st.write(f"Estimated concentration: {unknown_conc:.4f}")
 
-    # --- Formulas explainer ---
-    with st.expander("Formulas / Formules"):
-        st.markdown("""
-        **S/N Classic** = Peak height / Noise std deviation  
-        **S/N USP** = 2 × Peak height / Noise std deviation  
-        **LOD** = 3.3 × Noise / Slope  
-        **LOQ** = 10 × Noise / Slope  
-        **Width @ Half height** = distance between left and right X where Y = H/2
-        """)
+    # Export slope for S/N
+    if 'df' in locals() and not df.empty:
+        st.session_state['slope_linearity'] = slope
 
-    # --- Manual calculation ---
-    if mode_manual:
-        H = st.number_input("H (peak height)", value=0.0, format="%.6f")
-        h = st.number_input("h (noise)", value=0.0, format="%.6f")
-        use_linear_slope = st.checkbox("Use slope from linearity panel", value=True)
-        if use_linear_slope and st.session_state.linear_slope:
-            slope = st.session_state.linear_slope
+# ------------------------------
+# S/N amélioré
+# ------------------------------
+def sn_panel_enhanced():
+    st.header("S/N Analysis / Analyse S/N")
+    
+    uploaded = st.file_uploader("Upload chromatogram (CSV, PNG, JPG, PDF)", type=["csv","png","jpg","jpeg","pdf"])
+    manual = False
+    df = None
+
+    # ---------------------
+    # CSV
+    # ---------------------
+    if uploaded and uploaded.name.lower().endswith(".csv"):
+        uploaded.seek(0)
+        try:
+            df0 = pd.read_csv(uploaded)
+        except:
+            uploaded.seek(0)
+            df0 = pd.read_csv(uploaded, sep=";", engine="python")
+        cols_low = [c.lower() for c in df0.columns]
+        if "time" in cols_low and "signal" in cols_low:
+            df = df0.rename(columns={df0.columns[cols_low.index("time")]:"X",
+                                     df0.columns[cols_low.index("signal")]:"Y"})
         else:
-            slope = st.number_input("Slope (m)", value=0.0, format="%.6f")
-        if h != 0:
-            sn_classic = H/h
-            sn_usp = 2*H/h
-            if slope != 0:
-                lod = 3.3*h/slope
-                loq = 10*h/slope
+            df = df0.iloc[:, :2].copy()
+            df.columns = ["X","Y"]
+        df["X"] = pd.to_numeric(df["X"], errors="coerce")
+        df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
+
+    # ---------------------
+    # Image
+    # ---------------------
+    elif uploaded and uploaded.name.lower().endswith((".png",".jpg",".jpeg",".pdf")):
+        uploaded.seek(0)
+        if uploaded.name.lower().endswith(".pdf"):
+            try:
+                from pdf2image import convert_from_bytes
+                pages = convert_from_bytes(uploaded.read(), first_page=1, last_page=1, dpi=200)
+                img = pages[0].convert("L")
+            except:
+                st.error("PDF processing failed. Make sure poppler is installed.")
+                return
+        else:
+            img = Image.open(uploaded).convert("L")
+        
+        # Convert to B/W for analysis
+        img_bw = img.point(lambda x: 0 if x<128 else 255, '1')
+        arr = np.array(img_bw).astype(float)
+        arr = arr.max(axis=0)  # projection verticale
+        df = pd.DataFrame({"X": np.arange(len(arr)), "Y": arr})
+        st.subheader("Chromatogram original / Chromatogramme original")
+        st.image(img, use_column_width=True)
+
+    # ---------------------
+    # Manuel
+    # ---------------------
+    if df is None:
+        manual = True
+        st.info("Manual S/N calculation / Calcul manuel")
+        H = st.number_input("H (peak height / hauteur du pic)", value=0.0, format="%.6f")
+        h = st.number_input("h (noise / bruit)", value=0.0, format="%.6f")
+        slope_input = st.number_input("Slope / pente", value=0.0, format="%.6f")
+        sn_classic = H / h if h != 0 else float("nan")
+        sn_usp = 2*H/h if h != 0 else float("nan")
         st.write(f"S/N Classic: {sn_classic:.4f}")
         st.write(f"S/N USP: {sn_usp:.4f}")
-        st.write(f"LOD: {lod:.6f}, LOQ: {loq:.6f}")
+        if slope_input:
+            lod = 3.3*h/slope_input
+            loq = 10*h/slope_input
+            st.write(f"LOD: {lod:.6f}")
+            st.write(f"LOQ: {loq:.6f}")
+        return
 
-    # --- Image/CSV upload ---
-    if uploaded and not mode_manual:
-        name = uploaded.name.lower()
-        df = None
-        # CSV
-        if name.endswith(".csv"):
-            uploaded.seek(0)
-            try: df = pd.read_csv(uploaded)
-            except: uploaded.seek(0); df = pd.read_csv(uploaded, sep=";", engine="python")
-            df.columns = ["X","Y"] if len(df.columns)>=2 else df.columns
-            df["X"] = pd.to_numeric(df["X"], errors="coerce")
-            df["Y"] = pd.to_numeric(df["Y"], errors="coerce")
-        # Image
-        elif name.endswith((".png",".jpg",".jpeg")):
-            uploaded.seek(0)
-            img = Image.open(uploaded).convert("L")
-            arr = np.array(img)
-            arr = arr.max() - arr
-            df = pd.DataFrame({"X": np.arange(arr.shape[1]), "Y": arr.max(axis=0)})
-        if df is not None:
-            df = df.dropna().sort_values("X").reset_index(drop=True)
-            # Slider unique
-            x_min, x_max = float(df["X"].min()), float(df["X"].max())
-            slider_range = st.slider("Select noise region", min_value=x_min, max_value=x_max, value=(x_min+0.25*(x_max-x_min), x_min+0.75*(x_max-x_min)))
-            region = df[(df["X"]>=slider_range[0]) & (df["X"]<=slider_range[1])]
-            if len(region)==0: region = df
-            peak_idx = df["Y"].idxmax()
-            peak_x = df.loc[peak_idx,"X"]
-            peak_y = df.loc[peak_idx,"Y"]
-            baseline = region["Y"].mean()
-            height = peak_y - baseline
-            half_height = baseline + height/2
-            left_idx = df[df["X"]<=peak_x][df["Y"]<=half_height]["X"]
-            right_idx = df[df["X"]>=peak_x][df["Y"]<=half_height]["X"]
-            W = (right_idx.iloc[0]-left_idx.iloc[-1]) if len(left_idx)>0 and len(right_idx)>0 else np.nan
-            noise_std = region["Y"].std(ddof=0)
-            sn_classic = peak_y/noise_std
-            sn_usp = height/noise_std
-            if st.session_state.linear_slope:
-                slope = st.session_state.linear_slope
-                lod = 3.3*noise_std/slope
-                loq = 10*noise_std/slope
-            st.write(f"S/N Classic: {sn_classic:.4f}, S/N USP: {sn_usp:.4f}")
-            st.write(f"Peak X (retention time): {peak_x:.4f}, H: {height:.4f}, Noise h: {noise_std:.4f}, Width W: {W:.4f}")
-            if slope != 0: st.write(f"LOD: {lod:.6f}, LOQ: {loq:.6f}")
-            # Plot
-            fig, ax = plt.subplots(figsize=(10,3))
-            ax.plot(df["X"], df["Y"], label="Chromatogram")
-            ax.axvspan(slider_range[0], slider_range[1], alpha=0.25, color="yellow", label="Noise region")
-            ax.plot(peak_x, peak_y,"r^", label="Main peak")
-            ax.axhline(baseline,color="green",linestyle="--",label="Baseline")
-            ax.axhline(half_height,color="orange",linestyle="--",label="Half height")
-            ax.set_xlabel("Time / Temps")
-            ax.set_ylabel("Signal")
-            ax.legend()
-            st.pyplot(fig)
-            # Export image
-            buf_img = io.BytesIO()
-            fig.savefig(buf_img, format="png", bbox_inches="tight")
-            buf_img.seek(0)
-            st.download_button("Download processed image","image/png", buf_img.getvalue())
+    # ---------------------
+    # Slider unique pour zone de bruit
+    # ---------------------
+    x_min, x_max = float(df["X"].min()), float(df["X"].max())
+    default_start = x_min + 0.25*(x_max-x_min)
+    default_end = x_min + 0.75*(x_max-x_min)
+    start, end = st.slider("Select X range for noise / Sélectionner zone de bruit",
+                            min_value=float(x_min),
+                            max_value=float(x_max),
+                            value=(float(default_start), float(default_end)))
+    region = df[(df["X"]>=start)&(df["X"]<=end)]
+    noise_std = region["Y"].std(ddof=0) if not region.empty else np.std(df["Y"])
+    baseline = region["Y"].mean() if not region.empty else np.mean(df["Y"])
 
-# ----------------------------
-# MAIN APP
-# ----------------------------
+    # ---------------------
+    # Pic principal
+    # ---------------------
+    y = df["Y"].values
+    x = df["X"].values
+    peak_idx = np.argmax(y)
+    peak_x = x[peak_idx]
+    peak_y = y[peak_idx]
+    height = peak_y - baseline
+    half_height = baseline + height/2
+
+    left_idx = np.where(y[:peak_idx]<=half_height)[0]
+    right_idx = np.where(y[peak_idx:]<=half_height)[0]
+    W = (x[peak_idx] - x[left_idx[-1]] if len(left_idx)>0 else np.nan)
+    if len(right_idx)>0:
+        W += x[peak_idx+right_idx[0]] - x[peak_idx]
+
+    # ---------------------
+    # Calcul S/N
+    # ---------------------
+    sn_classic = peak_y / noise_std
+    sn_usp = height / noise_std
+    st.write(f"S/N Classic: {sn_classic:.4f}")
+    st.write(f"S/N USP: {sn_usp:.4f}")
+    st.write(f"H: {height:.4f}, Noise h: {noise_std:.4f}, W1/2: {W:.4f}, Peak X: {peak_x:.4f}")
+
+    # ---------------------
+    # Plot
+    # ---------------------
+    fig, ax = plt.subplots(figsize=(10,3))
+    ax.plot(x,y, label="Chromatogram")
+    ax.axvspan(start,end,alpha=0.25,label="Noise region")
+    ax.plot(peak_x, peak_y,"r^", label="Main peak")
+    ax.axhline(baseline, color="green", linestyle="--", label="Baseline")
+    ax.axhline(half_height,color="orange",linestyle="--", label="Half height")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Signal")
+    ax.legend()
+    st.pyplot(fig)
+
+    # ---------------------
+    # Export image et PDF
+    # ---------------------
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    st.download_button("Download processed image", buf, "sn_image.png", "image/png")
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial","B",16)
+    pdf.cell(0,10,"S/N Analysis Report",0,1,"C")
+    pdf.cell(0,8,f"S/N Classic: {sn_classic:.4f}",0,1)
+    pdf.cell(0,8,f"S/N USP: {sn_usp:.4f}",0,1)
+    pdf.cell(0,8,f"H: {height:.4f}, Noise h: {noise_std:.4f}, W1/2: {W:.4f}, Peak X: {peak_x:.4f}",0,1)
+    pdf.image(buf, x=10, y=50, w=190)
+    pdf_buf = io.BytesIO()
+    pdf.output(pdf_buf)
+    pdf_buf.seek(0)
+    st.download_button("Download PDF", pdf_buf, "sn_report.pdf", "application/pdf")
+
+# ------------------------------
+# Main
+# ------------------------------
 def main_app():
-    if "logged_in" not in st.session_state or not st.session_state.logged_in:
+    if 'logged_in' not in st.session_state or not st.session_state['logged_in']:
         login_page()
         return
-    st.sidebar.title("LabT Panels")
-    choice = st.sidebar.radio("Select panel / Sélectionnez le panel", ["Linearity", "S/N"])
-    if choice=="Linearity":
+    st.sidebar.title(f"Welcome {st.session_state['username']}")
+    page = st.sidebar.radio("Select page / Choisir page", ["Linearity / Linéarité", "S/N"])
+    if page.startswith("Linearity"):
         linearity_panel()
-    elif choice=="S/N":
-        sn_panel()
+    elif page.startswith("S/N"):
+        sn_panel_enhanced()
 
-# ----------------------------
-# RUN
-# ----------------------------
 def run():
     main_app()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     run()
