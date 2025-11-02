@@ -11,7 +11,7 @@ import tempfile
 import os
 from datetime import datetime
 
-# Optional features
+# Optional OCR / PDF features
 try:
     from pdf2image import convert_from_bytes
 except Exception:
@@ -23,12 +23,12 @@ except Exception:
     pytesseract = None
 
 # -------------------------
-# Page config
+# Page config (no sidebar)
 # -------------------------
 st.set_page_config(page_title="LabT", layout="wide", initial_sidebar_state="collapsed")
 
 USERS_FILE = "users.json"
-LOGO_FILE = "logo_labt.png"  # optional logo
+LOGO_FILE = "logo_labt.png"
 
 # -------------------------
 # Users helpers
@@ -208,42 +208,6 @@ def generate_pdf_bytes(title, lines, img_bytes=None, logo_path=None):
     return pdf.output(dest="S").encode("latin1")
 
 # -------------------------
-# OCR helper
-# -------------------------
-def extract_xy_from_image_pytesseract(img: Image.Image):
-    if pytesseract is None:
-        return pd.DataFrame(columns=["X","Y"])
-    try:
-        text = pytesseract.image_to_string(img)
-    except Exception:
-        return pd.DataFrame(columns=["X","Y"])
-    rows = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        for sep in [",",";","\t"]:
-            if sep in line:
-                parts = [p.strip() for p in line.split(sep) if p.strip()!=""]
-                if len(parts)>=2:
-                    try:
-                        x = float(parts[0].replace(",","."))
-                        y = float(parts[1].replace(",","."))
-                        rows.append([x,y])
-                        break
-                    except Exception:
-                        pass
-        else:
-            parts = line.split()
-            if len(parts)>=2:
-                try:
-                    x = float(parts[0].replace(",","."))
-                    y = float(parts[1].replace(",","."))
-                    rows.append([x,y])
-                except Exception:
-                    pass
-    return pd.DataFrame(rows, columns=["X","Y"])
-
-# -------------------------
 # Header area
 # -------------------------
 def header_area():
@@ -263,21 +227,19 @@ def header_area():
                 st.warning(f"Logo save error: {e}")
 
 # -------------------------
-# Login screen
+# Login page (bilingue, powered by BnB)
 # -------------------------
 def login_screen():
-    st.markdown(f"### 🔐 {t('login')}")
-    st.markdown(f"<div style='text-align:center;color:gray;font-size:12px'>{t('powered')}</div>", unsafe_allow_html=True)
+    st.subheader(t("login"))
+    st.markdown(f"<div style='color:gray;font-size:12px'>{t('powered')}</div>", unsafe_allow_html=True)
 
-    lang = st.selectbox("Language / Langue", ["FR","EN"], index=0 if st.session_state.get("lang","FR")=="FR" else 1)
-    st.session_state.lang = lang
-
+    st.session_state.lang = st.selectbox("Lang / Language", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1)
     username = st.text_input(t("username"))
     password = st.text_input(t("password"), type="password")
     if st.button(t("login")):
         uname = (username or "").strip()
         matched = find_user_key(uname)
-        if matched and USERS[matched]["password"]==(password or ""):
+        if matched and USERS[matched]["password"] == (password or ""):
             st.session_state.user = matched
             st.session_state.role = USERS[matched].get("role","user")
             st.session_state.page = "home"
@@ -288,272 +250,224 @@ def login_screen():
 # Logout
 # -------------------------
 def logout():
-    for key in ["user","role","page"]:
-        st.session_state.pop(key,None)
-    st.session_state.page = "login"
+    for k in ["user","role","page"]:
+        st.session_state.pop(k,None)
+    st.session_state.page="login"
+
 # -------------------------
 # Admin panel
 # -------------------------
 def admin_panel():
-    st.subheader("Admin Panel")
-    action = st.selectbox("Action", [t("add_user"), t("delete_user"), t("modify_user")])
-    if action == t("add_user"):
-        new_user = st.text_input("New username")
-        new_pwd = st.text_input("Password", type="password")
-        if st.button("Add"):
-            if new_user and new_pwd:
-                USERS[new_user] = {"password": new_pwd, "role":"user"}
+    st.header(t("admin"))
+    col1,col2=st.columns([2,1])
+    with col1:
+        st.subheader("Utilisateurs existants")
+        users_list=list(USERS.keys())
+        sel=st.selectbox("Sélectionner un utilisateur",users_list)
+        if sel:
+            info=USERS.get(sel,{})
+            st.write(f"**Nom d'utilisateur :** {sel}")
+            st.write(f"**Rôle :** {info.get('role','user')}")
+            new_pwd=st.text_input(f"Nouveau mot de passe pour {sel}", type="password", key=f"pwd_{sel}")
+            new_role=st.selectbox("Rôle", ["user","admin"], index=0 if info.get("role","user")=="user" else 1, key=f"role_{sel}")
+            if st.button("Modifier", key=f"mod_{sel}"):
+                USERS[sel]["password"]=new_pwd
+                USERS[sel]["role"]=new_role
                 save_users(USERS)
-                st.success(f"User {new_user} added")
-    elif action == t("delete_user"):
-        del_user = st.selectbox("Select user", list(USERS.keys()))
-        if st.button("Delete"):
-            if del_user in USERS:
-                USERS.pop(del_user)
+                st.success("Utilisateur modifié")
+            if st.button("Supprimer", key=f"del_{sel}"):
+                USERS.pop(sel,None)
                 save_users(USERS)
-                st.success(f"User {del_user} deleted")
-    elif action == t("modify_user"):
-        sel_user = st.selectbox("Select user", list(USERS.keys()))
-        new_pwd = st.text_input("New password", type="password")
-        if st.button("Modify"):
-            if sel_user in USERS and new_pwd:
-                USERS[sel_user]["password"] = new_pwd
+                st.success("Utilisateur supprimé")
+    with col2:
+        st.subheader("Ajouter nouvel utilisateur")
+        new_user=st.text_input(t("enter_username"))
+        new_password=st.text_input(t("enter_password"), type="password")
+        new_role=st.selectbox("Rôle", ["user","admin"], key="add_role")
+        if st.button("Ajouter"):
+            if new_user and new_password:
+                USERS[new_user]={"password":new_password,"role":new_role}
                 save_users(USERS)
-                st.success(f"Password changed for {sel_user}")
+                st.success("Utilisateur ajouté")
+            else:
+                st.warning("Veuillez saisir nom et mot de passe")
 
 # -------------------------
-# Linearity Panel
+# Linearity panel (inchangé)
 # -------------------------
 def linearity_panel():
-    st.subheader(t("linearity"))
-    input_type = st.radio("Input type", [t("input_csv"), t("input_manual")])
-
-    concentrations = []
-    signals = []
-
-    if input_type==t("input_csv"):
-        uploaded_file = st.file_uploader("Upload CSV", type="csv", key="lin_csv")
-        if uploaded_file is not None:
-            try:
-                df = pd.read_csv(uploaded_file)
-                if "Concentration" in df.columns and "Signal" in df.columns:
-                    concentrations = df["Concentration"].astype(float).tolist()
-                    signals = df["Signal"].astype(float).tolist()
-                else:
-                    st.error("CSV must have columns: Concentration, Signal")
-            except Exception as e:
-                st.error(f"CSV parse error: {e}")
+    st.header(t("linearity"))
+    st.write("Importer CSV ou saisie manuelle des concentrations et signaux.")
+    uploaded=st.file_uploader("CSV file", type=["csv"])
+    manual_mode=False
+    conc=None
+    signal=None
+    if uploaded:
+        df=pd.read_csv(uploaded)
+        conc=df["Conc"].values
+        signal=df["Signal"].values
     else:
-        conc_str = st.text_area("Concentrations (comma separated)")
-        sig_str = st.text_area("Signals (comma separated)")
+        manual_mode=True
+        conc_str=st.text_input("Concentrations (comma-separated)")
+        signal_str=st.text_input("Signals (comma-separated)")
         try:
-            concentrations = [float(c.strip()) for c in conc_str.split(",") if c.strip()!=""]
-            signals = [float(s.strip()) for s in sig_str.split(",") if s.strip()!=""]
-        except:
+            conc=np.array([float(x.strip()) for x in conc_str.split(",")])
+            signal=np.array([float(x.strip()) for x in signal_str.split(",")])
+        except Exception:
             st.warning("Invalid manual input")
-
-    slope = None
-    if concentrations and signals and len(concentrations)==len(signals):
-        slope = np.polyfit(concentrations, signals, 1)[0]
-        st.session_state.linear_slope = slope
+            return
+    if conc is not None and signal is not None:
+        coeffs=np.polyfit(conc,signal,1)
+        slope=coeffs[0]
         st.write(f"Slope: {slope:.4f}")
-        fig, ax = plt.subplots()
-        ax.scatter(concentrations, signals, label="Data")
-        ax.plot(concentrations, np.array(concentrations)*slope, color="red", label="Fit")
-        ax.set_xlabel("Concentration")
-        ax.set_ylabel("Signal")
-        ax.legend()
-        st.pyplot(fig)
-    else:
-        st.info("Enter valid data to see linearity fit")
+        st.session_state.linear_slope=slope
+        plt.figure(figsize=(6,3))
+        plt.plot(conc,signal,'o',label="Data")
+        plt.plot(conc,coeffs[0]*conc+coeffs[1],label="Fit")
+        plt.xlabel("Concentration")
+        plt.ylabel("Signal")
+        plt.legend()
+        st.pyplot(plt)
 
 # -------------------------
-# Chromatogram/SN Panel
+# S/N panel (amélioré)
 # -------------------------
 def sn_panel():
-    st.subheader(t("sn"))
+    st.header(t("sn"))
 
-    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"], key="sn_upload")
-    df = None
-    img_original = None
-    img_processed = None
-    x_vals = []
-    y_vals = []
+    uploaded = st.file_uploader(t("upload_chrom"), type=["csv","png","jpg","jpeg","pdf"])
+    manual_mode = False
+    signal = None
+    time = None
+    img_display = None
 
-    if uploaded is not None:
-        name = uploaded.name.lower()
-        if name.endswith(".csv"):
-            try:
-                df = pd.read_csv(uploaded)
-                if "Time" in df.columns and "Signal" in df.columns:
-                    x_vals = df["Time"].astype(float).tolist()
-                    y_vals = df["Signal"].astype(float).tolist()
-                else:
-                    st.warning("CSV must include columns Time and Signal")
-            except Exception as e:
-                st.error(f"CSV parse error: {e}")
-        else:
-            # Convert PDF to PNG
-            if name.endswith(".pdf") and convert_from_bytes is not None:
-                try:
-                    pages = convert_from_bytes(uploaded.read())
-                    img_original = pages[0]
-                except Exception:
-                    st.error("PDF conversion failed")
-            else:
-                try:
-                    img_original = Image.open(uploaded)
-                except:
-                    st.error("Cannot open image")
-
-        if img_original is not None:
-            st.image(img_original, caption="Original Chromatogram", use_column_width=True)
-            # OCR extraction
-            df = extract_xy_from_image_pytesseract(img_original)
-            if df.empty:
-                st.warning("OCR could not detect points")
-            else:
-                x_vals = df["X"].astype(float).tolist()
-                y_vals = df["Y"].astype(float).tolist()
-
-    if x_vals and y_vals:
-        # Invert image for processing
-        y_vals_proc = [max(y_vals)-y for y in y_vals]
-
-        # Slider unique pour zone de bruit
-        min_x = min(x_vals)
-        max_x = max(x_vals)
-        default_start = min_x
-        default_end = max_x
-        region = st.slider(t("select_region"), float(min_x), float(max_x), (float(default_start), float(default_end)))
-        x_region = [x for x in x_vals if region[0]<=x<=region[1]]
-        y_region = [y for i,x in enumerate(x_vals) if region[0]<=x<=region[1]]
-
-        if not y_region:
-            y_region = y_vals_proc  # fallback
-
-        H = max(y_vals_proc)
-        h = np.std(y_region)
-        W_half = None
+    # CSV import
+    if uploaded and uploaded.type=="text/csv":
         try:
-            half = H/2
-            indices = [i for i,y in enumerate(y_vals_proc) if y>=half]
-            if indices:
-                W_half = x_vals[indices[-1]] - x_vals[indices[0]]
-        except:
-            W_half = None
+            df = pd.read_csv(uploaded, sep=None, engine='python')
+            if "Time" in df.columns and "Signal" in df.columns:
+                time = df["Time"].values
+                signal = df["Signal"].values
+            else:
+                st.error("CSV must contain 'Time' and 'Signal' columns")
+                return
+        except Exception as e:
+            st.error(f"CSV read error: {e}")
+            return
 
-        tR = x_vals[y_vals_proc.index(max(y_vals_proc))]
+    # Image import
+    elif uploaded:
+        try:
+            if uploaded.type=="application/pdf" and convert_from_bytes:
+                pages = convert_from_bytes(uploaded.read())
+                img = pages[0].convert("L")
+            else:
+                img = Image.open(uploaded).convert("L")
+            img_display = img.copy()
+            arr = np.array(img)
+            arr_inv = 255 - arr
+            signal = arr_inv.mean(axis=0)
+            time = np.arange(len(signal))
+        except Exception as e:
+            st.error(f"Image processing failed: {e}")
+            return
+    else:
+        manual_mode = True
 
-        st.write(f"tR (peak max) : {tR:.2f}")
-        st.write(f"H (peak height) : {H:.2f}")
-        st.write(f"h (noise) : {h:.2f}")
-        st.write(f"W1/2 : {W_half:.2f} (if calculable)")
+    # Manual input
+    if manual_mode:
+        st.subheader("Manual S/N calculation")
+        conc_str = st.text_input("Concentrations (comma-separated)")
+        signal_str = st.text_input("Signals (comma-separated)")
+        try:
+            conc = np.array([float(x.strip()) for x in conc_str.split(",")])
+            signal = np.array([float(x.strip()) for x in signal_str.split(",")])
+            time = np.arange(len(signal))
+        except Exception:
+            st.warning("Invalid manual input")
+            return
 
-        sn_classic = H/h if h>0 else None
-        sn_usp = 2*H/h if h>0 else None
-        st.write(f"S/N classic: {sn_classic:.2f}" if sn_classic else "N/A")
-        st.write(f"S/N USP: {sn_usp:.2f}" if sn_usp else "N/A")
+    # Zone selection slider
+    if signal is not None:
+        start_idx, end_idx = st.slider(
+            t("select_section"), 
+            0, len(signal)-1, (0,len(signal)-1), step=1
+        )
 
-        # Plot
-        fig, ax = plt.subplots()
-        ax.plot(x_vals, y_vals_proc, label="Processed Chromatogram")
-        ax.axhline(H/2, color="orange", linestyle="--", label="H/2")
-        ax.axvline(tR, color="red", linestyle="--", label="tR")
-        ax.fill_between(x_region, 0, y_region, color="gray", alpha=0.3, label="Noise region")
+        signal_region = signal[start_idx:end_idx+1]
+        time_region = time[start_idx:end_idx+1]
+
+        H = signal.max()
+        H_idx = np.argmax(signal)
+        t_R = time[H_idx]
+        h = signal_region.std()
+        W_half = H/2
+
+        st.write(f"**H (peak):** {H:.3f}")
+        st.write(f"**h (noise):** {h:.3f}")
+        st.write(f"**W1/2:** {W_half:.3f}")
+        st.write(f"**Retention time:** {t_R:.3f}")
+
+        sn_classic = H/h if h>0 else np.nan
+        sn_usp = H/h if h>0 else np.nan
+        st.write(f"**S/N classic:** {sn_classic:.2f}")
+        st.write(f"**S/N USP:** {sn_usp:.2f}")
+
+        fig, ax = plt.subplots(figsize=(10,3))
+        ax.plot(time, signal, color='black')
+        ax.axhline(H/2,color='red',linestyle="--",label="W1/2")
+        ax.axhline(H,color='green',linestyle="--",label="H max")
+        ax.axhline(h,color='orange',linestyle="--",label="Noise h")
+        ax.axvline(t_R,color='blue',linestyle=":",label="t_R")
         ax.set_xlabel("Time")
         ax.set_ylabel("Signal")
+        ax.set_title("Chromatogram with S/N indicators")
         ax.legend()
         st.pyplot(fig)
 
-        # Export processed image
         buf = io.BytesIO()
         fig.savefig(buf, format="png")
         buf.seek(0)
-        st.download_button("Download processed image", buf, "chrom_processed.png", "image/png")
+        st.download_button("Download S/N Image", data=buf, file_name="sn.png", mime="image/png")
 
-        # Formulas
-        with st.expander(t("formulas")):
-            st.markdown("""
-            **S/N Classic:** H / h  
-            **S/N USP:** 2 * H / h  
-            **W1/2:** Width at half maximum  
-            **tR:** Retention time of the main peak
-            """)
-# -------------------------
-# Header (logo + title)
-# -------------------------
-def header_area():
-    cols = st.columns([3,1])
-    with cols[0]:
-        st.markdown(f"<h1 style='margin-bottom:0.1rem;'>{t('app_title')}</h1>", unsafe_allow_html=True)
-    with cols[1]:
-        upl = st.file_uploader(t("upload_logo"), type=["png","jpg","jpeg"])
-        if upl is not None:
-            try:
-                upl.seek(0)
-                data = upl.read()
-                with open(LOGO_FILE, "wb") as f:
-                    f.write(data)
-                st.success("Logo saved")
-            except Exception as e:
-                st.warning(f"Logo save error: {e}")
+        pdf_bytes = generate_pdf_bytes("S/N Report", [
+            f"H (peak): {H:.3f}",
+            f"h (noise): {h:.3f}",
+            f"W1/2: {W_half:.3f}",
+            f"Retention time: {t_R:.3f}",
+            f"S/N classic: {sn_classic:.2f}",
+            f"S/N USP: {sn_usp:.2f}"
+        ], img_bytes=buf)
+        st.download_button(t("export_sn_pdf"), pdf_bytes, "sn_report.pdf", "application/pdf")
 
 # -------------------------
-# Main App
+# Main app
 # -------------------------
 def main_app():
     header_area()
+    st.sidebar.button(t("logout"), on_click=logout)
+    menu = ["Home", t("linearity"), t("sn")]
+    if st.session_state.role=="admin":
+        menu.append(t("admin"))
 
-    # Language selection
-    lang = st.selectbox("", ["FR","EN"], index=0 if st.session_state.lang=="FR" else 1)
-    st.session_state.lang = lang
-
-    if st.session_state.role == "admin":
-        tabs = st.tabs([t("admin")])
-        with tabs[0]:
-            admin_panel()
+    choice = st.sidebar.radio("Menu", menu)
+    if choice==t("linearity"):
+        linearity_panel()
+    elif choice==t("sn"):
+        sn_panel()
+    elif choice==t("admin") and st.session_state.role=="admin":
+        admin_panel()
     else:
-        tabs = st.tabs([t("linearity"), t("sn")])
-        with tabs[0]:
-            linearity_panel()
-        with tabs[1]:
-            sn_panel()
-
-    if st.button(t("logout")):
-        st.session_state.user = None
-        st.session_state.role = None
-        st.session_state.linear_slope = None
-        st.experimental_rerun()
+        st.write("Welcome")
 
 # -------------------------
-# Run Application
+# Run app
 # -------------------------
 def run():
-    st.set_page_config(page_title="LabT", layout="wide")
-    if "lang" not in st.session_state:
-        st.session_state.lang = "FR"
-    if "user" not in st.session_state or st.session_state.user is None:
-        # Login page
-        st.markdown("### 🔐 " + t("login"))
-        st.text_input(t("username"), key="login_user")
-        st.text_input(t("password"), type="password", key="login_pwd")
-        if st.button(t("login")):
-            uname = st.session_state.get("login_user", "").strip()
-            pwd = st.session_state.get("login_pwd", "")
-            matched = find_user_key(uname)
-            if matched and USERS[matched]["password"]==pwd:
-                st.session_state.user = matched
-                st.session_state.role = USERS[matched].get("role","user")
-                st.experimental_rerun()
-            else:
-                st.error(t("invalid"))
-        st.markdown(f"<div style='position:fixed;bottom:8px;left:0;right:0;text-align:center;color:gray;font-size:12px'>Powered by: BnB</div>", unsafe_allow_html=True)
+    if st.session_state.get("user") is None:
+        login_screen()
     else:
         main_app()
 
-# -------------------------
-# Entry point
-# -------------------------
 if __name__=="__main__":
     run()
