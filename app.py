@@ -1,204 +1,221 @@
-# app.py - Partie 1
-
+# ================== app.py ==================
 import streamlit as st
+import json
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from fpdf import FPDF
+from PIL import Image
 from pdf2image import convert_from_bytes
 from skimage.color import rgb2gray
-from skimage import io
-from scipy.signal import find_peaks
-import json
-from datetime import datetime
+from skimage.filters import threshold_otsu
 
-# --- Session state initialisation ---
-if "login_status" not in st.session_state:
-    st.session_state["login_status"] = False
-if "username" not in st.session_state:
-    st.session_state["username"] = ""
-if "role" not in st.session_state:
-    st.session_state["role"] = ""
+# ------------------- SESSION INIT -------------------
+if 'user_role' not in st.session_state:
+    st.session_state['user_role'] = None
+if 'username' not in st.session_state:
+    st.session_state['username'] = None
+if 'linearity_slope' not in st.session_state:
+    st.session_state['linearity_slope'] = None
+if 'feedbacks' not in st.session_state:
+    st.session_state['feedbacks'] = []
 
-# --- Chargement des utilisateurs depuis JSON ---
-def load_users():
-    try:
-        with open("users.json", "r") as f:
-            users = json.load(f)
-        return users
-    except FileNotFoundError:
-        return {}
+# ------------------- USERS JSON -------------------
+users_json = {
+    "admin": {"password": "admin", "role": "admin"},
+    "user": {"password": "user", "role": "user"}
+}
 
-def save_users(users):
-    with open("users.json", "w") as f:
-        json.dump(users, f, indent=4)
-
-# --- Page de connexion ---
+# ------------------- LOGIN PAGE -------------------
 def login_page():
-    st.title("LabT Login / Connexion")
-    st.caption("Powered by BnB")
-    
-    users = load_users()
-    
-    username_input = st.text_input("Username / Nom d'utilisateur").lower()
-    password_input = st.text_input("Password / Mot de passe", type="password")
-    
-    if st.button("Login / Se connecter"):
-        if username_input in users and users[username_input]["password"] == password_input:
-            st.session_state["login_status"] = True
-            st.session_state["username"] = username_input
-            st.session_state["role"] = users[username_input]["role"]
+    st.title("Connexion / Login")
+    st.write("Powered by: BnB")
+    username = st.text_input("Nom d'utilisateur / Username")
+    password = st.text_input("Mot de passe / Password", type="password")
+    if st.button("Se connecter / Login"):
+        uname = username.lower()
+        if uname in users_json and users_json[uname]['password'] == password:
+            st.session_state['user_role'] = users_json[uname]['role']
+            st.session_state['username'] = uname
+            st.success("Connexion réussie / Login success")
             st.experimental_rerun()
         else:
-            st.error("Invalid credentials / Identifiants invalides")
-    
-def logout():
-    st.session_state["login_status"] = False
-    st.session_state["username"] = ""
-    st.session_state["role"] = ""
-    st.experimental_rerun()
+            st.error("Identifiants invalides / Invalid credentials")
 
-# --- Navigation principale ---
-def main_app():
-    if not st.session_state["login_status"]:
-        login_page()
-        return
-    
-    st.write(f"Logged in as: {st.session_state['username']} ({st.session_state['role']})")
-    if st.session_state["role"] == "admin":
+# ------------------- MENU -------------------
+def main_menu():
+    st.title("Menu Principal / Main Menu")
+    if st.session_state['user_role'] == "admin":
+        st.subheader("Gestion des utilisateurs / User management")
         admin_panel()
-    else:
-        user_panel()
-# app.py - Partie 2
+    elif st.session_state['user_role'] == "user":
+        st.subheader("Calculs / Calculations")
+        menu_choice = st.radio("Sélectionnez le module / Select module", ["Linéarité / Linearity", "S/N / Signal to Noise", "Changer mot de passe / Change password", "Feed-back / Feedback"])
+        if menu_choice.startswith("Linéarité"):
+            linearity_panel()
+        elif menu_choice.startswith("S/N"):
+            sn_panel_robust()
+        elif menu_choice.startswith("Changer"):
+            change_password()
+        elif menu_choice.startswith("Feed"):
+            feedback_panel()
 
-# --- Panel Admin ---
+# ------------------- ADMIN PANEL -------------------
 def admin_panel():
-    st.subheader("Admin Panel - Gestion des utilisateurs")
-    users = load_users()
+    st.write("Admin: accès gestion utilisateurs / Admin: only user management")
+    new_user = st.text_input("Nom utilisateur / New username")
+    new_pass = st.text_input("Mot de passe / Password", type="password")
+    new_role = st.selectbox("Rôle", ["admin","user"])
+    if st.button("Ajouter / Add user"):
+        users_json[new_user.lower()] = {"password": new_pass, "role": new_role}
+        st.success("Utilisateur ajouté / User added")
+    st.write("Liste des utilisateurs / Users list")
+    st.json(users_json)
 
-    new_user = st.text_input("Ajouter un utilisateur / Add user")
-    new_password = st.text_input("Mot de passe / Password", type="password")
-    new_role = st.selectbox("Rôle / Role", ["admin", "user"], key="admin_role_select")
-    
-    if st.button("Ajouter / Add"):
-        if new_user and new_password:
-            users[new_user.lower()] = {"password": new_password, "role": new_role}
-            save_users(users)
-            st.success(f"Utilisateur {new_user} ajouté")
-        else:
-            st.warning("Veuillez saisir un nom et mot de passe")
-    
-    st.subheader("Liste des utilisateurs / Users")
-    for u, info in users.items():
-        st.write(f"{u} - {info['role']}")
-        if st.button(f"Supprimer {u}", key=f"del_{u}"):
-            users.pop(u)
-            save_users(users)
-            st.experimental_rerun()
-# app.py - Partie 3
-
-# --- Panel Linéarité ---
-def linearity_panel():
-    st.subheader("Linéarité / Linearity")
-    uploaded_csv = st.file_uploader("Importer CSV (concentration, signal)")
-    unit = st.selectbox("Unité concentration / Unit", ["µg/mL", "mg/mL"], index=0)
-
-    if uploaded_csv:
-        df = pd.read_csv(uploaded_csv)
-        x = df['concentration']
-        y = df['signal']
-        slope, intercept = np.polyfit(x, y, 1)
-        st.session_state["linearity_slope"] = slope
-
-        # Plot linéarité
-        plt.figure()
-        plt.plot(x, y, 'o', label="Data")
-        plt.plot(x, slope*x+intercept, '-', label="Fit")
-        plt.xlabel(f"Concentration ({unit})")
-        plt.ylabel("Signal")
-        plt.title("Courbe de linéarité")
-        plt.legend()
-        st.pyplot(plt.gcf())
-
-        # Concentration ou signal inconnu
-        y_unknown = st.number_input("Signal inconnu / Unknown signal")
-        x_unknown = st.number_input("Concentration inconnue / Unknown concentration")
-        if y_unknown:
-            conc_calc = (y_unknown - intercept)/slope
-            st.write(f"Concentration inconnue calculée: {conc_calc:.3f} {unit}")
-        if x_unknown:
-            signal_calc = slope * x_unknown + intercept
-            st.write(f"Signal inconnu calculé: {signal_calc:.3f}")
-
-# --- Panel S/N (voir code précédent fourni) ---
-def sn_panel_robust():
-    st.subheader("Calcul S/N / S/N Calculation")
-    uploaded_file = st.file_uploader("Importer PDF ou PNG du chromatogramme")
-
-    slope_manual = st.number_input("Pente manuelle (optionnel) / Manual slope", value=0.0)
-
-    if uploaded_file:
-        try:
-            if uploaded_file.name.lower().endswith(".pdf"):
-                images = convert_from_bytes(uploaded_file.read())
-                img = images[0]
-            else:
-                img = io.imread(uploaded_file)
-
-            st.image(img, caption="Chromatogramme original", use_column_width=True)
-            img_gray = rgb2gray(np.array(img)) if img.ndim==3 else np.array(img)
-            y_signal = img_gray.mean(axis=1)
-            peaks, _ = find_peaks(y_signal, height=np.max(y_signal)*0.05)
-            if len(peaks)==0:
-                st.warning("Aucun pic détecté automatiquement")
-            else:
-                main_peak = peaks[np.argmax(y_signal[peaks])]
-                H = y_signal[main_peak]
-                h = H/2
-                st.write(f"Hauteur pic principal H={H:.3f}")
-                fig, ax = plt.subplots()
-                ax.imshow(img)
-                ax.plot([img.shape[1]//2], [main_peak], 'ro')
-                st.pyplot(fig)
-
-                threshold = st.slider("Sensibilité / Threshold", min_value=0.0, max_value=1.0, value=0.1)
-                h_input = st.number_input("h (bruit) / noise", value=h)
-                H_input = st.number_input("H (pic principal) / peak", value=H)
-                slope = slope_manual if slope_manual !=0 else st.session_state.get("linearity_slope",1.0)
-                sn_classic = H_input/h_input
-                st.write(f"S/N classique: {sn_classic:.2f}")
-                unit = st.selectbox("Unité concentration / Unit", ["µg/mL","mg/mL"])
-                lod = 3*h_input/slope
-                loq = 10*h_input/slope
-                st.write(f"LOD={lod:.3f} {unit}, LOQ={loq:.3f} {unit}")
-                if st.button("Afficher formules / Show formulas"):
-                    st.latex(r"S/N = \frac{H}{h}")
-                    st.latex(r"LOD = \frac{3 \cdot h}{pente}")
-                    st.latex(r"LOQ = \frac{10 \cdot h}{pente}")
-        except Exception as e:
-            st.error(f"Erreur traitement image / Image processing error: {e}")
-
-# --- Changer mot de passe ---
+# ------------------- CHANGE PASSWORD -------------------
 def change_password():
     st.subheader("Changer mot de passe / Change password")
-    users = load_users()
     old = st.text_input("Ancien mot de passe / Old password", type="password")
     new = st.text_input("Nouveau mot de passe / New password", type="password")
-    if st.button("Valider / Submit"):
-        username = st.session_state["username"]
-        if users[username]["password"] == old:
-            users[username]["password"] = new
-            save_users(users)
-            st.success("Mot de passe changé")
+    if st.button("Valider / Save"):
+        uname = st.session_state['username']
+        if users_json[uname]['password'] == old:
+            users_json[uname]['password'] = new
+            st.success("Mot de passe changé / Password changed")
         else:
-            st.error("Ancien mot de passe incorrect")
+            st.error("Ancien mot de passe incorrect / Wrong old password")
 
-# --- Feedback ---
+# ------------------- LINEARITY PANEL -------------------
+def linearity_panel():
+    st.subheader("Linéarité / Linearity")
+    # Entrée manuelle ou CSV
+    manual = st.checkbox("Saisie manuelle / Manual input")
+    if manual:
+        conc_str = st.text_input("Concentrations séparées par ',' / Concentrations comma-separated")
+        signal_str = st.text_input("Signaux séparés par ',' / Signals comma-separated")
+        try:
+            conc = np.array([float(x) for x in conc_str.split(",")])
+            sig = np.array([float(x) for x in signal_str.split(",")])
+        except:
+            st.error("Entrée invalide / Invalid input")
+            return
+    else:
+        uploaded = st.file_uploader("Importer CSV / Upload CSV", type="csv")
+        if uploaded:
+            df = pd.read_csv(uploaded)
+            conc = df.iloc[:,0].values
+            sig = df.iloc[:,1].values
+        else:
+            return
+    
+    # Choix unité
+    unit = st.selectbox("Unité concentration / Concentration unit", ["µg/mL","mg/mL","ng/mL"])
+    
+    # Fit linéaire
+    slope, intercept = np.polyfit(conc, sig,1)
+    st.session_state['linearity_slope'] = slope
+    
+    # Tracé
+    fig, ax = plt.subplots()
+    ax.plot(conc, sig, 'bo', label='Données / Data')
+    ax.plot(conc, slope*conc + intercept, 'k-', label='Fit')
+    ax.set_xlabel(f"Concentration ({unit})")
+    ax.set_ylabel("Signal")
+    ax.set_title("Courbe de linéarité / Linearity curve")
+    ax.legend()
+    st.pyplot(fig)
+    
+    # Calcul concentration inconnue
+    sig_unknown = st.number_input("Signal inconnu / Unknown signal", min_value=0.0)
+    conc_calc = (sig_unknown - intercept)/slope
+    st.write(f"Concentration inconnue: {conc_calc:.4f} {unit}")
+    
+    conc_unknown = st.number_input("Concentration inconnue / Unknown concentration", min_value=0.0)
+    sig_calc = slope*conc_unknown + intercept
+    st.write(f"Signal correspondant: {sig_calc:.4f}")
+
+# ------------------- S/N PANEL -------------------
+def sn_panel_robust():
+    st.subheader("S/N / Signal to Noise")
+    uploaded_file = st.file_uploader("Charger PDF ou image / Upload PDF or image", type=["pdf","png","jpg","jpeg"])
+    if not uploaded_file:
+        return
+    
+    # PDF → PNG
+    if uploaded_file.type == "application/pdf":
+        try:
+            images = convert_from_bytes(uploaded_file.read())
+            img = images[0]
+        except Exception as e:
+            st.error(f"Erreur conversion PDF / PDF conversion error: {e}")
+            return
+    else:
+        img = Image.open(uploaded_file)
+
+    st.image(img, caption="Image originale / Original Image", use_column_width=True)
+    
+    img_gray = rgb2gray(np.array(img))
+    
+    st.write("Sélection de la zone de bruit / Select noise region")
+    min_val, max_val = st.slider("Zone du bruit / Noise region", 0, img_gray.shape[1]-1, (0, img_gray.shape[1]//5))
+    noise_region = img_gray[:, min_val:max_val]
+
+    thresh_val = threshold_otsu(noise_region)
+    threshold = st.slider("Threshold / Sensitivity", float(noise_region.min()), float(noise_region.max()), float(thresh_val))
+    
+    H = img_gray.max()
+    h = noise_region.max()
+    st.write(f"Hauteur pic H: {H:.3f}, Bruit h: {h:.3f}")
+
+    S_N_classic = H/h
+    st.write(f"S/N classique: {S_N_classic:.2f}")
+
+    slope = st.session_state.get('linearity_slope', None)
+    unit = st.selectbox("Unité concentration / Concentration unit", ["µg/mL","mg/mL","ng/mL"])
+    if slope:
+        LOQ = (10 * h)/slope
+        LOD = (3.3 * h)/slope
+        st.write(f"LOD: {LOD:.4f} {unit}, LOQ: {LOQ:.4f} {unit}")
+    else:
+        st.info("Importer d'abord la linéarité pour LOQ/LOD / Import linearity first for LOQ/LOD")
+
+    with st.expander("Formules de calcul / Calculation formulas"):
+        st.markdown("""
+        - S/N classique = H / h  
+        - LOD = 3.3 × h / pente  
+        - LOQ = 10 × h / pente  
+        """)
+
+    # Pic principal
+    fig, ax = plt.subplots()
+    ax.imshow(img)
+    peak_y, peak_x = np.unravel_index(np.argmax(img_gray), img_gray.shape)
+    ax.plot(peak_x, peak_y, 'ro')
+    ax.set_title("Pic principal marqué / Main peak marked")
+    st.pyplot(fig)
+
+# ------------------- FEEDBACK -------------------
 def feedback_panel():
-    st.subheader("Feedback / Suggestions")
-    feedback_text = st.text_area("Envoyer vos commentaires / Send feedback")
-    if st.button("Envoyer / Submit"):
-        with open("feedback.json","a") as f:
-            json.dump({"user":st.session_state["username"],"feedback":feedback_text,"date":str(datetime.now())}, f)
-            f.write("\n")
-        st.success("Feedback envoyé")
+    st.subheader("Feed-back / Feedback")
+    feedback_text = st.text_area("Envoyer un commentaire / Send feedback")
+    if st.button("Envoyer / Send"):
+        st.session_state['feedbacks'].append(feedback_text)
+        st.success("Feedback envoyé / Feedback sent")
+    
+    if st.session_state.get('user_role') == "admin":
+        st.subheader("Réponses aux feed-back / Feedback responses")
+        for fb in st.session_state.get('feedbacks', []):
+            st.write(fb)
+
+# ------------------- RUN -------------------
+def run():
+    if st.session_state['user_role'] is None:
+        login_page()
+    else:
+        main_menu()
+        if st.button("Déconnexion / Logout"):
+            st.session_state['user_role'] = None
+            st.session_state['username'] = None
+            st.experimental_rerun()
+
+if __name__ == "__main__":
+    run()
