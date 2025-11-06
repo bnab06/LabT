@@ -1,6 +1,6 @@
 # -----------------------------
 # app.py  — PART 1 (core + login/admin/navigation + utils)
-# Collez PART 2 après cette section (linéarité + S/N + feedback)
+# Paste PART 2 then PART 3 after this
 # -----------------------------
 import streamlit as st
 import json
@@ -216,7 +216,7 @@ def save_feedback(list_feedback):
 # -------------------------
 def pdf_to_png_bytes(uploaded_file):
     """
-    Try convert PDF bytes -> PIL.Image (PNG bytes). Returns (pil_image, msg)
+    Try convert PDF bytes -> PIL.Image (first page). Returns (pil_image, msg)
     If convert_from_bytes not available or fails, returns (None, error_msg).
     """
     if convert_from_bytes is None:
@@ -226,7 +226,7 @@ def pdf_to_png_bytes(uploaded_file):
         pages = convert_from_bytes(uploaded_file.read(), first_page=1, last_page=1, dpi=200)
         pil_img = pages[0]
         return pil_img, None
-    except Exception as e:
+    except Exception:
         return None, t("could_not_convert_pdf")
 
 # -------------------------
@@ -416,8 +416,8 @@ def has_access(module_name):
 # End of PART 1
 # -------------------------
 # -----------------------------
-# app.py  — PART 2 (linearity_panel, sn_panel_full, feedback, main_app)
-# Collez immédiatement après PART 1
+# app.py  — PART 2 (linearity_panel, sn_panel_full, feedback)
+# Paste immediately after PART 1
 # -----------------------------
 import pandas as pd
 import numpy as np
@@ -426,11 +426,56 @@ import io
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 from PIL import Image
-from fpdf import FPDF
+
+# -------------------------
+# Helper: extract XY from image using pytesseract (best-effort)
+# Returns DataFrame with X,Y columns (empty DF if not found)
+# -------------------------
+def extract_xy_from_image_pytesseract(pil_img: Image.Image):
+    import pandas as _pd
+    if pytesseract is None:
+        return _pd.DataFrame(columns=["X","Y"])
+    try:
+        # Try to extract coordinate pairs from OCR text (if the image contains numbers)
+        text = pytesseract.image_to_string(pil_img)
+        rows = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            # try common separators
+            for sep in [",", ";", "\t"]:
+                if sep in line:
+                    parts = [p.strip() for p in line.split(sep) if p.strip() != ""]
+                    if len(parts) >= 2:
+                        try:
+                            x = float(parts[0].replace(",","."))
+                            y = float(parts[1].replace(",","."))
+                            rows.append((x,y))
+                            break
+                        except Exception:
+                            pass
+            else:
+                # fallback split by whitespace
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        x = float(parts[0].replace(",","."))
+                        y = float(parts[1].replace(",","."))
+                        rows.append((x,y))
+                    except Exception:
+                        pass
+        if rows:
+            df = _pd.DataFrame(rows, columns=["X","Y"]).sort_values("X").reset_index(drop=True)
+            return df
+    except Exception:
+        pass
+    # If OCR didn't find coordinate pairs, return empty df to trigger fallback
+    return pd.DataFrame(columns=["X","Y"])
 
 # -------------------------
 # Linearity panel
-# (Kept as your original; unchanged behavior)
+# (Kept as the original behaviour; unchanged logic + manual input)
 # -------------------------
 def linearity_panel():
     st.header(t("linearity"))
@@ -577,7 +622,6 @@ def linearity_panel():
             logo_path = LOGO_FILE if os.path.exists(LOGO_FILE) else None
             pdf_bytes = generate_pdf_bytes("Linearity report", lines, img_bytes=buf, logo_path=logo_path)
             st.download_button(t("download_pdf"), pdf_bytes, file_name="linearity_report.pdf", mime="application/pdf")
-
 
 # -------------------------
 # S/N panel (improved)
@@ -789,15 +833,13 @@ def sn_panel_full():
     else:
         st.info("Slope not provided -> LOD/LOQ in concentration cannot be computed.")
 
-    # Plot original image (if available) and overlay markers on top using matplotlib to preserve axes
+    # Plot original-style chromatogram preserving axis scales (black line, background white)
     fig, ax = plt.subplots(figsize=(10, 3))
-    ax.plot(df["X"], df["Y"], color="black", label="Chromatogram")  # preserve original style as black line
-    # highlight noise region
+    ax.set_facecolor("white")
+    ax.plot(df["X"], df["Y"], color="black", label="Chromatogram")
     ax.axvspan(start, end, alpha=0.2, color="gray", label=t("noise_region"))
-    # baseline and half height
     ax.axhline(baseline, color="green", linestyle="--", label="Baseline")
     ax.axhline(half_height, color="orange", linestyle="--", label="Half height")
-    # mark main peak with red dot
     ax.plot([peak_x], [peak_y], marker="o", markersize=8, color="red", label="Main peak")
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
@@ -895,10 +937,11 @@ def feedback_panel():
                         feeds[i]["reply"] = r
                         save_feedback(feeds)
                         st.success("Reply saved.")
-
-# -------------------------
+# -----------------------------
+# app.py  — PART 3 (main_app + run)
+# Paste after PART 1 and PART 2
+# -----------------------------
 # Main app layout and routing
-# -------------------------
 def main_app():
     header_area()
     cols = st.columns([1,3,1])
@@ -949,9 +992,7 @@ def main_app():
     else:
         st.info("Select a module above.")
 
-# -------------------------
 # Entrypoint
-# -------------------------
 def run_app():
     if st.session_state.get("user"):
         main_app()
@@ -961,5 +1002,4 @@ def run_app():
 if __name__ == "__main__":
     run_app()
 # -------------------------
-# End of PART 2
-# -------------------------
+# End of PART 3
