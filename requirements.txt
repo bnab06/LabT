@@ -14,7 +14,8 @@ reportlab
 fpdf
 streamlit-plotly-events
 scikit-image
-poppler
+pikepdf
+
 
 
 
