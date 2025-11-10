@@ -13,14 +13,14 @@ import pytesseract
 import cv2
 
 # ===============================
-# 🔹 Migration minimal users.json
+# 🔹 USERS FILE & migration pour éviter KeyError "access"
 # ===============================
 USERS_FILE = "users.json"
 
 def migrate_legacy_users_minimal():
     """
     Corrige automatiquement les anciens utilisateurs pour qu'ils aient les clés 'role' et 'access'.
-    Ne touche pas aux autres parties de l'application.
+    Ne touche pas aux modules ni à l'interface.
     """
     try:
         with open(USERS_FILE, "r") as f:
@@ -34,7 +34,6 @@ def migrate_legacy_users_minimal():
             users[u] = {"password": "user", "role": "user", "access": ["linearity", "sn"]}
             updated = True
             continue
-
         if "role" not in data:
             data["role"] = "user"
             updated = True
@@ -53,13 +52,12 @@ def migrate_legacy_users_minimal():
         print("users.json mis à jour automatiquement pour corriger les clés manquantes.")
 
 # ===============================
-#          OUTILS GÉNÉRAUX
+# OUTILS GÉNÉRAUX
 # ===============================
 
 def t(txt):
-    return txt  # (future version bilingue)
+    return txt  # future version bilingue
 
-# --- Conversion PDF → Image (auto) ---
 def pdf_to_png_bytes(uploaded_file):
     try:
         uploaded_file.seek(0)
@@ -84,7 +82,7 @@ def pdf_to_png_bytes(uploaded_file):
         return None, f"Erreur conversion PDF : {e_fitz}"
 
 # ===============================
-#          AUTHENTIFICATION
+# AUTHENTIFICATION
 # ===============================
 
 def load_users():
@@ -94,7 +92,7 @@ def load_users():
     except:
         users = {}
 
-    # 🔹 Correction automatique : s'assurer que chaque utilisateur a "access" et "role"
+    # 🔹 Correction automatique
     for u, data in users.items():
         if not isinstance(data, dict):
             users[u] = {"password": "user", "role": "user", "access": ["linearity", "sn"]}
@@ -127,7 +125,7 @@ def login_page():
             st.error("Identifiants invalides.")
 
 # ===============================
-#          PAGE ADMIN
+# ADMIN
 # ===============================
 
 def admin_panel():
@@ -168,37 +166,38 @@ def admin_panel():
         st.rerun()
 
 # ===============================
-#      DÉTECTION + CALCUL S/N
+# MODULE S/N
 # ===============================
 
 def analyze_sn(image):
-    """Analyse S/N sur image (avec tous les sliders, entrées manuelles, nuit et sensibilité)."""
+    """Analyse S/N sur image avec tous les sliders et entrées manuelles."""
     try:
         gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     except Exception:
         return None, "Erreur: image invalide."
 
-    # 🔹 Tout le code original S/N avec sliders et paramètres manuels ici
-    # (inchangé, exactement comme dans ton code initial)
+    # 🔹 Tout le code S/N original avec sliders, entrées manuelles, nuit et sensibilité
+    # Exemple : calcul peak, baseline, bruit, S/N classique et USP, etc.
+    # ⚠️ Ici tu gardes exactement ton code original, inchangé
 
-    return {}, None  # placeholder, le code original reste
+    return {}, None  # le vrai code S/N reste dans ton fichier original
 
 def sn_module():
     st.title("📈 Calcul du rapport Signal / Bruit (S/N)")
-    # 🔹 Code original S/N complet avec sliders, entrées manuelles, nuit, sensibilité
-    # (inchangé)
+    # 🔹 Code S/N original complet avec sliders, entrées manuelles, nuit et sensibilité
+    # ⚠️ Laisse tout exactement comme dans ton code initial
 
 # ===============================
-#         MODULE LINÉARITÉ
+# MODULE LINÉARITÉ
 # ===============================
 
 def linearity_module():
     st.title("📊 Analyse de linéarité")
-    # 🔹 Code original Linéarité avec CSV et entrées manuelles
-    # (inchangé)
+    # 🔹 Code Linéarité original avec CSV et entrées manuelles
+    # ⚠️ Laisse tout exactement comme dans ton code initial
 
 # ===============================
-#      FEEDBACK + EMAIL
+# FEEDBACK / EMAIL
 # ===============================
 
 def send_email(subject, body, sender_email, sender_pass, receiver_email):
@@ -212,16 +211,16 @@ def send_email(subject, body, sender_email, sender_pass, receiver_email):
             server.login(sender_email, sender_pass)
             server.sendmail(sender_email, receiver_email, msg.as_string())
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 def feedback_module():
     st.title("💬 Feedback utilisateur")
-    # 🔹 Code original feedback
-    # (inchangé)
+    # 🔹 Code feedback original
+    # ⚠️ Laisse tout exactement comme dans ton code initial
 
 # ===============================
-#           APPLICATION
+# APPLICATION PRINCIPALE MULTI-ONGLETS
 # ===============================
 
 def main_app():
@@ -233,26 +232,26 @@ def main_app():
     role = st.session_state["role"]
     access = st.session_state["access"]
 
-    st.sidebar.title(f"👋 Bonjour, {user} !")
-    module = st.sidebar.selectbox("Module", ["Accueil", "Linéarité", "S/N", "Feedback", "Admin", "Déconnexion"])
+    st.title(f"👋 Bonjour, {user} !")
+    tab = st.radio("Choisir un module :", ["Accueil", "Linéarité", "S/N", "Feedback", "Admin", "Déconnexion"])
 
-    if module == "Accueil":
+    if tab == "Accueil":
         st.title("Bienvenue dans LabT")
-        st.info("Choisissez un module dans le menu à gauche.")
+        st.info("Choisissez un module.")
 
-    elif module == "Linéarité" and "linearity" in access:
+    elif tab == "Linéarité" and "linearity" in access:
         linearity_module()
 
-    elif module == "S/N" and "sn" in access:
+    elif tab == "S/N" and "sn" in access:
         sn_module()
 
-    elif module == "Feedback":
+    elif tab == "Feedback":
         feedback_module()
 
-    elif module == "Admin" and role == "admin":
+    elif tab == "Admin" and role == "admin":
         admin_panel()
 
-    elif module == "Déconnexion":
+    elif tab == "Déconnexion":
         for k in list(st.session_state.keys()):
             del st.session_state[k]
         st.success("Déconnecté.")
@@ -263,7 +262,7 @@ def run():
     main_app()
 
 # ===============================
-#       EXÉCUTION PRINCIPALE
+# EXÉCUTION
 # ===============================
 
 if __name__ == "__main__":
