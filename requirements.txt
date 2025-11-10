@@ -1,35 +1,26 @@
-streamlit
-pandas
-numpy
-matplotlib
-plotly
-scipy
-pillow
-pytesseract
-PyMuPDF
-opencv-python-headless
-fpdf2
-pdf2image
-reportlab
-fpdf
+# Core
+streamlit>=1.39.0
+pandas>=2.2.2
+numpy>=1.26.4
+matplotlib>=3.9.2
+plotly>=5.24.1
+Pillow>=10.3.0
+
+# OCR / Image
+pytesseract>=0.3.10
+opencv-python-headless>=4.10.0.84
+scikit-image>=0.24.0
+
+# PDF handling
+pdf2image>=1.17.0
 PyMuPDF>=1.24.8
-streamlit-plotly-events
-scikit-image
-pikepdf
-headless>=4.10.0.84
+
 # Utils
 requests>=2.32.3
+fpdf2>=2.7.8
+
 # Email / SMTP
 secure-smtplib>=0.1.1
+
 # JSON / Files
 python-dotenv>=1.0.1
-
-
-
-
-
-
-
-
-
-
