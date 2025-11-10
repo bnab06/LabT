@@ -12,12 +12,17 @@ fpdf2
 pdf2image
 reportlab
 fpdf
+PyMuPDF>=1.24.8
 streamlit-plotly-events
 scikit-image
 pikepdf
-
-
-
+headless>=4.10.0.84
+# Utils
+requests>=2.32.3
+# Email / SMTP
+secure-smtplib>=0.1.1
+# JSON / Files
+python-dotenv>=1.0.1
 
 
 
