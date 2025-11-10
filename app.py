@@ -49,15 +49,77 @@ def pdf_to_png_bytes(uploaded_file):
 
 USERS_FILE = "users.json"
 
+def migrate_legacy_users():
+    """
+    Transforme les utilisateurs anciens ou mal formés dans users.json
+    pour qu'ils aient toujours les clés standard :
+    - 'password' (string)
+    - 'role' ('admin' ou 'user')
+    - 'access' (liste contenant 'linearity' et/ou 'sn')
+    """
+    try:
+        with open(USERS_FILE, "r") as f:
+            users = json.load(f)
+    except:
+        users = {}
+
+    updated = False
+    for u, data in users.items():
+        # 🔹 Si data n'est pas un dict, réinitialiser
+        if not isinstance(data, dict):
+            users[u] = {"password": "user", "role": "user", "access": ["linearity", "sn"]}
+            updated = True
+            continue
+
+        # 🔹 Clé password obligatoire
+        if "password" not in data or not isinstance(data["password"], str):
+            data["password"] = "user"
+            updated = True
+
+        # 🔹 Clé role obligatoire
+        if "role" not in data or data["role"] not in ["user", "admin"]:
+            data["role"] = "user"
+            updated = True
+
+        # 🔹 Clé access obligatoire et en liste
+        if "access" not in data or not isinstance(data["access"], list):
+            data["access"] = ["linearity", "sn"]
+            updated = True
+        else:
+            # Nettoyer les valeurs invalides dans access
+            valid_modules = {"linearity", "sn"}
+            cleaned_access = [m for m in data["access"] if m in valid_modules]
+            if cleaned_access != data["access"]:
+                data["access"] = cleaned_access or ["linearity", "sn"]
+                updated = True
+
+    # 🔹 Ajoute admin initial si absent
+    if "admin" not in users:
+        users["admin"] = {"password": "admin", "role": "admin", "access": ["linearity", "sn"]}
+        updated = True
+
+    if updated:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f, indent=4)
+        print("Migration des utilisateurs legacy terminée. users.json standardisé.")
+
 def load_users():
     try:
         with open(USERS_FILE, "r") as f:
-            return json.load(f)
+            users = json.load(f)
     except:
-        return {
-            "admin": {"password": "admin", "role": "admin", "access": ["linearity", "sn"]},
-            "user": {"password": "user", "role": "user", "access": ["linearity", "sn"]}
-        }
+        users = {}
+
+    # 🔹 Correction automatique : s'assurer que chaque utilisateur a "access" et "role"
+    for u, data in users.items():
+        if not isinstance(data, dict):
+            users[u] = {"password": "user", "role": "user", "access": ["linearity", "sn"]}
+        else:
+            if "role" not in data:
+                data["role"] = "user"
+            if "access" not in data:
+                data["access"] = ["linearity", "sn"]
+    return users
 
 def save_users(users):
     with open(USERS_FILE, "w") as f:
@@ -72,8 +134,8 @@ def login_page():
     if st.button("Connexion"):
         if username in users and users[username]["password"] == password:
             st.session_state["user"] = username
-            st.session_state["role"] = users[username]["role"]
-            st.session_state["access"] = users[username]["access"]
+            st.session_state["role"] = users[username].get("role", "user")
+            st.session_state["access"] = users[username].get("access", ["linearity", "sn"])
             st.success("Connexion réussie !")
             st.session_state["page"] = "menu"
             st.rerun()
@@ -95,7 +157,7 @@ def admin_panel():
         privileges = st.multiselect("Modules", ["linearity", "sn"])
         if st.button("Créer"):
             if new_user and new_pass:
-                users[new_user] = {"password": new_pass, "role": "user", "access": privileges}
+                users[new_user] = {"password": new_pass, "role": "user", "access": privileges or ["linearity", "sn"]}
                 save_users(users)
                 st.success(f"Utilisateur '{new_user}' ajouté.")
             else:
@@ -104,7 +166,7 @@ def admin_panel():
     elif action == "Modifier privilèges":
         user_to_edit = st.selectbox("Utilisateur", [u for u in users if users[u]["role"] != "admin"])
         if user_to_edit:
-            new_priv = st.multiselect("Modules", ["linearity", "sn"], default=users[user_to_edit]["access"])
+            new_priv = st.multiselect("Modules", ["linearity", "sn"], default=users[user_to_edit].get("access", ["linearity", "sn"]))
             if st.button("Sauvegarder"):
                 users[user_to_edit]["access"] = new_priv
                 save_users(users)
@@ -288,5 +350,10 @@ def run():
     st.set_page_config(page_title="LabT", layout="wide")
     main_app()
 
+# ===============================
+#       EXÉCUTION PRINCIPALE
+# ===============================
+
 if __name__ == "__main__":
+    migrate_legacy_users()  # 🔹 Migration automatique des anciens utilisateurs
     run()
