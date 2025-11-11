@@ -242,7 +242,15 @@ def feedback_module():
 LANG = st.selectbox("Language / Langue", ["FR","EN"], index=0)
 
 def main_app():
-    if "user" not in st.session_state: login_page(); return
+    # Initialisation sécurisée des clés session pour éviter KeyError
+    if "user" not in st.session_state: st.session_state["user"]=None
+    if "role" not in st.session_state: st.session_state["role"]=None
+    if "access" not in st.session_state: st.session_state["access"]=[]
+
+    if st.session_state["user"] is None:
+        login_page()
+        return
+
     user = st.session_state["user"]
     role = st.session_state["role"]
     access = st.session_state["access"]
