@@ -2,203 +2,274 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import os
-import io
 import json
+import io
 from datetime import datetime
-from scipy.signal import find_peaks
-from pdf2image import convert_from_path
 from PIL import Image
-import pytesseract
-import smtplib
-from email.mime.text import MIMEText
+from pdf2image import convert_from_bytes
+import cv2
+import matplotlib.pyplot as plt
+import os
 
-# -----------------------------
-# CONFIG GLOBALE
-# -----------------------------
-st.set_page_config(page_title="LabT", layout="wide")
+# ===============================
+# TRADUCTIONS BILINGUE
+# ===============================
+TRANSLATIONS = {
+    "FR": {
+        "Language / Langue": "Langue",
+        "Connexion": "Connexion",
+        "Utilisateur": "Utilisateur",
+        "Mot de passe": "Mot de passe",
+        "Connexion réussie !": "Connexion réussie !",
+        "Identifiants invalides.": "Identifiants invalides.",
+        "Bienvenue dans LabT": "Bienvenue dans LabT",
+        "Choisissez un module ci-dessus.": "Choisissez un module ci-dessus.",
+        "Déconnecté": "Déconnecté",
+        "Signal plat ou OCR invalide": "Signal plat ou OCR invalide",
+        "Importer une image ou un PDF du chromatogramme": "Importer une image ou un PDF du chromatogramme",
+        "Temps de rétention": "Temps de rétention",
+        "S/N Classique": "S/N Classique",
+        "S/N USP": "S/N USP",
+        "Importer un fichier CSV": "Importer un fichier CSV",
+        "Message ou commentaire": "Message ou commentaire"
+    },
+    "EN": {
+        "Language / Langue": "Language",
+        "Connexion": "Login",
+        "Utilisateur": "User",
+        "Mot de passe": "Password",
+        "Connexion réussie !": "Login successful!",
+        "Identifiants invalides.": "Invalid credentials.",
+        "Bienvenue dans LabT": "Welcome to LabT",
+        "Choisissez un module ci-dessus.": "Choose a module above.",
+        "Déconnecté": "Logged out",
+        "Signal plat ou OCR invalide": "Flat signal or invalid OCR",
+        "Importer une image ou un PDF du chromatogramme": "Upload image or PDF of chromatogram",
+        "Temps de rétention": "Retention time",
+        "S/N Classique": "Classic S/N",
+        "S/N USP": "USP S/N",
+        "Importer un fichier CSV": "Upload CSV file",
+        "Message ou commentaire": "Message or comment"
+    }
+}
+
+# ===============================
+# LANGUE PAR DÉFAUT
+# ===============================
+LANG = "FR"
+def t(txt, lang=None):
+    if lang is None: lang = LANG
+    return TRANSLATIONS.get(lang, {}).get(txt, txt)
+
+# ===============================
+# USERS FILE
+# ===============================
 USERS_FILE = "users.json"
-
-# -----------------------------
-# GESTION UTILISATEURS
-# -----------------------------
-def ensure_files():
-    """Crée le fichier users.json si manquant."""
-    if not os.path.exists(USERS_FILE):
-        users = {
-            "admin": {"password": "admin", "role": "admin", "access": ["Linéarité", "S/N"]},
-            "user": {"password": "user", "role": "user", "access": ["S/N"]}
-        }
-        with open(USERS_FILE, "w") as f:
-            json.dump(users, f, indent=4)
+if not os.path.exists(USERS_FILE):
+    users = {
+        "admin":{"password":"admin","role":"admin","access":["linearity","sn"]},
+        "user":{"password":"user","role":"user","access":["linearity","sn"]}
+    }
+    with open(USERS_FILE,"w") as f:
+        json.dump(users,f,indent=4)
 
 def load_users():
-    with open(USERS_FILE, "r") as f:
-        return json.load(f)
-
+    with open(USERS_FILE,"r") as f: return json.load(f)
 def save_users(users):
-    with open(USERS_FILE, "w") as f:
-        json.dump(users, f, indent=4)
+    with open(USERS_FILE,"w") as f: json.dump(users,f,indent=4)
 
-# -----------------------------
-# LOGIN / LOGOUT
-# -----------------------------
+# ===============================
+# LOGIN
+# ===============================
 def login_page():
-    st.title("🔐 Connexion")
+    st.title(t("Connexion"))
     users = load_users()
-
-    username = st.text_input("Utilisateur")
-    password = st.text_input("Mot de passe", type="password")
-    login_btn = st.button("Se connecter")
-
-    if login_btn:
-        if username in users and password == users[username]["password"]:
-            st.session_state["username"] = username
-            st.session_state["role"] = users[username]["role"]
-            st.session_state["access"] = users[username]["access"]
-            st.success(f"Bienvenue {username} !")
-            st.experimental_rerun()
+    username = st.selectbox(t("Utilisateur"), list(users.keys()))
+    password = st.text_input(t("Mot de passe"), type="password")
+    if st.button(t("Connexion")):
+        if username in users and users[username]["password"]==password:
+            st.session_state["user"]=username
+            st.session_state["role"]=users[username]["role"]
+            # ✅ Correction KeyError ici
+            st.session_state["access"]=users[username].get("access", [])
+            st.success(t("Connexion réussie !"))
+            st.session_state["page"]="menu"
+            st.rerun()
         else:
-            st.error("Utilisateur ou mot de passe invalide.")
+            st.error(t("Identifiants invalides."))
 
-def logout():
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
-    st.success("Déconnecté avec succès.")
-    st.experimental_rerun()
-
-# -----------------------------
-# MODULE S/N
-# -----------------------------
-def sn_module():
-    st.header("📊 Calcul du rapport S/N")
-
-    uploaded = st.file_uploader("Charger un chromatogramme (image ou PDF)", type=["png", "jpg", "jpeg", "pdf"])
-    if not uploaded:
-        return
-
-    # Extraction OCR / Image
-    if uploaded.type == "application/pdf":
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-            tmp.write(uploaded.read())
-            images = convert_from_path(tmp.name)
-            img = images[0]
-    else:
-        img = Image.open(uploaded)
-
-    # OCR
-    text = pytesseract.image_to_string(img)
-    data = []
-    for line in text.splitlines():
-        parts = line.replace(",", ".").split()
-        vals = [v for v in parts if v.replace('.', '', 1).isdigit()]
-        if len(vals) >= 2:
-            data.append(vals[:2])
-
-    if not data:
-        st.error("❌ Impossible d’extraire les données du chromatogramme.")
-        return
-
-    df = pd.DataFrame(data, columns=["X", "Y"]).astype(float)
-
-    # Corriger X artificiel si plat
-    if len(df["X"].unique()) <= 1:
-        st.warning("Signal plat ou OCR invalide : axe X artificiel généré.")
-        df["X"] = np.arange(len(df))
-
-    # Détection automatique du pic principal
-    peaks, _ = find_peaks(df["Y"], height=np.median(df["Y"]) * 1.2)
-    if len(peaks) == 0:
-        idx = df["Y"].idxmax()
-        peak_x = df.loc[idx, "X"]
-        peak_y = df.loc[idx, "Y"]
-        st.warning("Aucun pic détecté par seuil — pic le plus haut utilisé.")
-    else:
-        idx = peaks[np.argmax(df.loc[peaks, 'Y'])]
-        peak_x = df.loc[idx, "X"]
-        peak_y = df.loc[idx, "Y"]
-
-    # Calcul bruit et S/N
-    noise_region = df["Y"].iloc[:max(10, len(df)//10)]
-    noise_std = np.std(noise_region)
-    if noise_std == 0:
-        noise_std = 1e-9
-
-    sn_classic = peak_y / noise_std
-    sn_usp = (peak_y - np.mean(noise_region)) / (2 * noise_std)
-
-    # Affichage
-    st.write(f"**S/N Classique :** {sn_classic:.4f}")
-    st.write(f"**S/N USP :** {sn_usp:.4f}")
-    st.write(f"**Temps de rétention du pic :** {peak_x:.4f}")
-
-    # Tracé du chromatogramme
-    st.line_chart(df.set_index("X"))
-
-# -----------------------------
-# MODULE LINÉARITÉ
-# -----------------------------
-def linearity_module():
-    st.header("📈 Évaluation de la linéarité")
-    st.info("Module en développement.")
-
-# -----------------------------
-# MODULE ADMIN
-# -----------------------------
-def admin_module():
-    st.header("⚙️ Administration")
+# ===============================
+# ADMIN PANEL
+# ===============================
+def admin_panel():
+    st.subheader("👤 Gestion des utilisateurs")
     users = load_users()
-    selected_user = st.selectbox("Sélectionner un utilisateur", list(users.keys()))
-    st.write(f"Rôle : {users[selected_user]['role']}")
-    st.write(f"Accès : {', '.join(users[selected_user]['access'])}")
+    action = st.selectbox("Action", ["Ajouter utilisateur", "Modifier privilèges", "Supprimer utilisateur"])
+    if action == "Ajouter utilisateur":
+        new_user = st.text_input("Nom d'utilisateur")
+        new_pass = st.text_input("Mot de passe")
+        privileges = st.multiselect("Modules", ["linearity", "sn"])
+        if st.button("Créer"):
+            if new_user and new_pass:
+                users[new_user] = {"password": new_pass, "role": "user", "access": privileges}
+                save_users(users)
+                st.success(f"Utilisateur '{new_user}' ajouté.")
+            else:
+                st.error("Remplir tous les champs.")
+    elif action == "Modifier privilèges":
+        user_to_edit = st.selectbox("Utilisateur", [u for u in users if users[u]["role"] != "admin"])
+        if user_to_edit:
+            # ✅ Correction KeyError ici
+            new_priv = st.multiselect("Modules", ["linearity", "sn"], default=users[user_to_edit].get("access", []))
+            if st.button("Sauvegarder"):
+                users[user_to_edit]["access"]=new_priv
+                save_users(users)
+                st.success("Modifications enregistrées.")
+    elif action == "Supprimer utilisateur":
+        user_to_del = st.selectbox("Utilisateur à supprimer", [u for u in users if users[u]["role"] != "admin"])
+        if st.button("Supprimer"):
+            users.pop(user_to_del)
+            save_users(users)
+            st.warning(f"Utilisateur {user_to_del} supprimé.")
+    if st.button("⬅️ Retour au menu principal"):
+        st.session_state["page"]="menu"
+        st.rerun()
 
-# -----------------------------
-# MODULE FEEDBACK
-# -----------------------------
+# ===============================
+# PDF -> IMAGE
+# ===============================
+def pdf_to_png_bytes(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        pages = convert_from_bytes(uploaded_file.read(), first_page=1, last_page=1, dpi=300)
+        if pages: return pages[0].convert("RGB"), None
+    except:
+        import fitz
+        uploaded_file.seek(0)
+        pdf_bytes = uploaded_file.read()
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        if doc.page_count<1: return None,"PDF vide."
+        page = doc.load_page(0)
+        mat = fitz.Matrix(2.0,2.0)
+        pix = page.get_pixmap(matrix=mat,alpha=False)
+        img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+        return img,None
+
+# ===============================
+# S/N MODULE AVEC SLIDERS & CALCUL MANUEL
+# ===============================
+def analyze_sn_manual(image, zone_start, zone_end, sensitivity):
+    gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
+    profile = np.mean(gray, axis=0)
+    x = np.arange(len(profile))
+    y = profile
+    y_zone = y[zone_start:zone_end]
+    x_zone = x[zone_start:zone_end]
+    peak_idx = np.argmax(y_zone)
+    peak_height = y_zone[peak_idx]
+    baseline = np.median(y_zone)
+    noise = np.std(y_zone[:max(1,len(y_zone)//10)])
+    sn_classic = (peak_height-baseline)/(noise if noise!=0 else 1)
+    sn_classic *= sensitivity
+    sn_usp = sn_classic/np.sqrt(2)
+    retention_time = x_zone[peak_idx]
+    return {"S/N Classique":sn_classic,"S/N USP":sn_usp,"Peak Retention":retention_time}
+
+def sn_module():
+    st.title("📈 Calcul du rapport Signal / Bruit (S/N)")
+    uploaded_file = st.file_uploader(t("Importer une image ou un PDF du chromatogramme"), type=["png","jpg","jpeg","pdf"])
+    if uploaded_file:
+        if uploaded_file.type=="application/pdf":
+            img, err = pdf_to_png_bytes(uploaded_file)
+            if err: st.error(err); return
+        else: img = Image.open(uploaded_file).convert("RGB")
+        st.image(img, caption="Chromatogramme original", use_container_width=True)
+        max_x = img.width
+        zone = st.slider("Zone d'analyse",0,max_x,(0,max_x))
+        sensitivity = st.slider("Sensibilité",0.1,5.0,1.0)
+        res = analyze_sn_manual(img, zone[0], zone[1], sensitivity)
+        st.markdown(f"**S/N Classique :** {res['S/N Classique']:.4f}")
+        st.markdown(f"**S/N USP :** {res['S/N USP']:.4f}")
+        st.markdown(f"**Temps de rétention :** {res['Peak Retention']:.0f}")
+
+# ===============================
+# LINÉARITÉ MODULE AVEC GRAPHIQUE & CONCENTRATION INCONNUE
+# ===============================
+def linearity_module():
+    st.title("📊 Analyse de linéarité")
+    uploaded_file = st.file_uploader(t("Importer un fichier CSV"), type=["csv"])
+    if not uploaded_file: st.info("Veuillez importer un fichier CSV contenant vos données de calibration."); return
+    df = pd.read_csv(uploaded_file)
+    st.dataframe(df)
+    if "Concentration" in df.columns and "Réponse" in df.columns:
+        x,y = df["Concentration"],df["Réponse"]
+        coeffs = np.polyfit(x,y,1)
+        slope,intercept = coeffs
+        r = np.corrcoef(x,y)[0,1]
+        st.markdown(f"**y = {slope:.4f}x + {intercept:.4f}**")
+        st.markdown(f"**R² = {r**2:.4f}**")
+        plt.figure(figsize=(6,4))
+        plt.scatter(x,y,label="Données")
+        plt.plot(x,slope*x+intercept,color="red",label="Régression")
+        plt.xlabel("Concentration"); plt.ylabel("Réponse"); plt.legend(); plt.grid(True)
+        st.pyplot(plt)
+        unknown_signal = st.number_input("Entrer signal inconnu",value=0.0)
+        if unknown_signal>0:
+            conc_unknown = (unknown_signal-intercept)/slope
+            st.markdown(f"**Concentration estimée :** {conc_unknown:.4f}")
+    else: st.error("Le fichier doit contenir les colonnes 'Concentration' et 'Réponse'.")
+
+# ===============================
+# FEEDBACK SIMPLE
+# ===============================
 def feedback_module():
-    st.header("💬 Feedback")
-    msg = st.text_area("Votre message :")
+    st.title("💬 Feedback utilisateur")
+    msg = st.text_area(t("Message ou commentaire"))
     if st.button("Envoyer"):
-        st.success("Merci pour votre retour ! (email désactivé sur Streamlit Cloud)")
+        if msg: st.success("Message enregistré ✅")
+        else: st.warning("Veuillez remplir le message.")
 
-# -----------------------------
+# ===============================
 # APPLICATION PRINCIPALE
-# -----------------------------
+# ===============================
+LANG = st.selectbox("Language / Langue", ["FR","EN"], index=0)
+
 def main_app():
-    username = st.session_state.get("username", None)
-    role = st.session_state.get("role", None)
+    # Initialisation sécurisée des clés session
+    if "user" not in st.session_state: st.session_state["user"]=None
+    if "role" not in st.session_state: st.session_state["role"]=None
+    if "access" not in st.session_state: st.session_state["access"]=[]
 
-    # ✅ Affichage logo ou texte si manquant
-    if os.path.exists("logo.png"):
-        st.sidebar.image("logo.png", use_container_width=True)
-    else:
-        st.sidebar.markdown("### 🧪 LabT")
-
-    st.sidebar.markdown(f"👋 Bonjour, **{username}** ({role})")
-
-    # Menu déroulant des modules
-    module = st.sidebar.selectbox("📂 Module", ["Linéarité", "S/N", "Feedback", "Admin", "Déconnexion"])
-
-    if module == "Déconnexion":
-        logout()
-    elif module == "S/N":
-        sn_module()
-    elif module == "Linéarité":
-        linearity_module()
-    elif module == "Admin":
-        admin_module()
-    elif module == "Feedback":
-        feedback_module()
-
-# -----------------------------
-# LANCEMENT
-# -----------------------------
-def run():
-    ensure_files()
-    if "username" not in st.session_state:
+    if st.session_state["user"] is None:
         login_page()
-    else:
-        main_app()
+        return
 
-if __name__ == "__main__":
+    user = st.session_state["user"]
+    role = st.session_state["role"]
+    access = st.session_state["access"]
+
+    st.title(f"👋 {user}")
+    module = st.selectbox("Module", ["Accueil","Linéarité","S/N","Feedback","Admin","Déconnexion"])
+
+    if module=="Accueil":
+        st.title(t("Bienvenue dans LabT"))
+        st.info(t("Choisissez un module ci-dessus."))
+    elif module=="Linéarité" and "linearity" in access:
+        linearity_module()
+    elif module=="S/N" and "sn" in access:
+        sn_module()
+    elif module=="Feedback":
+        feedback_module()
+    elif module=="Admin" and role=="admin":
+        admin_panel()
+    elif module=="Déconnexion":
+        for k in list(st.session_state.keys()): del st.session_state[k]
+        st.success(t("Déconnecté"))
+        st.rerun()
+
+def run():
+    st.set_page_config(page_title="LabT", layout="wide")
+    main_app()
+
+if __name__=="__main__":
     run()
