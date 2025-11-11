@@ -46,8 +46,8 @@ TRANSLATIONS = {
         "Mot de passe modifié": "Mot de passe modifié avec succès",
         "Erreur mot de passe": "Ancien mot de passe incorrect ou confirmation différente",
         "Afficher les formules": "Afficher les formules",
-        "Formules SN": "Formules S/N :\nS/N classique = H / h\nS/N (USP) = 2 H / h\noù H = hauteur du pic, h = écart-type du bruit (ou `h` mesuré).",
-        "Formules LOD LOQ": "Formules LOD/LOQ :\nLOD (signal) = 3.3 * noise\nLOQ (signal) = 10 * noise\nLOD (conc) = 3.3 * noise / slope\nLOQ (conc) = 10 * noise / slope"
+        "Formules SN": "Formules S/N :\nS/N classique = H / h\nS/N (USP) = 2 H / h\noù H = hauteur du pic, h = bruit (écart-type).",
+        "Formules LOD LOQ": "Formules LOD/LOQ :\nLOD(signal) = 3 * h\nLOQ(signal) = 10 * h\nLOD(conc) = LOD(signal) / slope\nLOQ(conc) = LOQ(signal) / slope"
     },
     "EN": {
         "Language / Langue": "Language",
@@ -79,8 +79,8 @@ TRANSLATIONS = {
         "Mot de passe modifié": "Password changed successfully",
         "Erreur mot de passe": "Old password incorrect or confirmation mismatch",
         "Afficher les formules": "Show formulas",
-        "Formules SN": "S/N formulas:\nClassic S/N = H / h\nUSP S/N = 2 H / h\nwhere H = peak height, h = noise std (or measured 'h').",
-        "Formules LOD LOQ": "LOD/LOQ formulas:\nLOD (signal) = 3.3 * noise\nLOQ (signal) = 10 * noise\nLOD (conc) = 3.3 * noise / slope\nLOQ (conc) = 10 * noise / slope"
+        "Formules SN": "S/N formulas:\nClassic S/N = H / h\nUSP S/N = 2 H / h\nwhere H = peak height, h = noise (std).",
+        "Formules LOD LOQ": "LOD/LOQ formulas:\nLOD(signal) = 3 * h\nLOQ(signal) = 10 * h\nLOD(conc) = LOD(signal) / slope\nLOQ(conc) = LOQ(signal) / slope"
     }
 }
 
@@ -118,8 +118,7 @@ def pdf_to_png_bytes(uploaded_file):
         uploaded_file.seek(0)
         pages = convert_from_bytes(uploaded_file.read(), first_page=1, last_page=1, dpi=300)
         if pages: return pages[0].convert("RGB"), None
-    except Exception as e_pdf2:
-        # fallback to fitz
+    except Exception:
         try:
             import fitz
             uploaded_file.seek(0)
@@ -148,7 +147,6 @@ def login_page():
             st.session_state["user"] = username
             st.session_state["role"] = users[username].get("role", "user")
             st.session_state["access"] = users[username].get("access", [])
-            # keep slope if exists
             st.session_state.setdefault("slope", None)
             st.success(t("Connexion réussie !"))
             st.session_state["page"] = "menu"
@@ -166,9 +164,9 @@ def change_password_panel():
     if not user:
         st.warning("Not logged in")
         return
-    old = st.text_input(t("Ancien mot de passe:"), type="password")
-    new = st.text_input(t("Nouveau mot de passe:"), type="password")
-    confirm = st.text_input(t("Confirmer mot de passe:"), type="password")
+    old = st.text_input(t("Ancien mot de passe"), type="password")
+    new = st.text_input(t("Nouveau mot de passe"), type="password")
+    confirm = st.text_input(t("Confirmer mot de passe"), type="password")
     if st.button(t("Changer mot de passe")):
         if users.get(user) and users[user]["password"] == old and new and new == confirm:
             users[user]["password"] = new
@@ -178,7 +176,7 @@ def change_password_panel():
             st.error(t("Erreur mot de passe"))
 
 # ===============================
-# ADMIN panel (intact sauf get default)
+# ADMIN panel (intact except safe gets)
 # ===============================
 def admin_panel():
     st.subheader("👤 Gestion des utilisateurs")
@@ -214,7 +212,7 @@ def admin_panel():
         st.rerun()
 
 # ===============================
-# S/N helpers
+# S/N helpers: analyze image profile (keeps last result in session)
 # ===============================
 def analyze_sn_from_image(image, start=None, end=None):
     """Compute profile, return metrics and arrays for plotting."""
@@ -249,11 +247,12 @@ def analyze_sn_from_image(image, start=None, end=None):
     }, None
 
 # ===============================
-# LOD/LOQ helpers
+# compute LOD/LOQ given h (uses user formula LOD=3*h; LOQ=10*h)
+# returns signal and conc if slope provided
 # ===============================
-def compute_lod_loq_from_noise(noise, slope=None):
-    lod_signal = 3.3 * noise
-    loq_signal = 10 * noise
+def compute_lod_loq_from_h(h, slope=None):
+    lod_signal = 3.0 * h
+    loq_signal = 10.0 * h
     lod_conc = None
     loq_conc = None
     if slope and slope != 0:
@@ -262,7 +261,7 @@ def compute_lod_loq_from_noise(noise, slope=None):
     return lod_signal, loq_signal, lod_conc, loq_conc
 
 # ===============================
-# LINÉARITÉ MODULE (comma-separated manual input, unit select, export slope)
+# LINEARITY MODULE (manual comma-separated + CSV, exports slope)
 # ===============================
 CONCENTRATION_UNITS = ["mg/mL", "µg/mL", "ng/mL", "ppm", "mol/L"]
 
@@ -271,10 +270,10 @@ def linearity_module():
     col_csv, col_manual = st.columns(2)
     slope_export = None
 
-    # Option 1: upload CSV (kept, but we require columns named Concentration, Réponse)
+    # Option: CSV
     with col_csv:
         st.subheader("CSV")
-        uploaded_file = st.file_uploader(t("Importer un fichier CSV"), type=["csv"])
+        uploaded_file = st.file_uploader(t("Importer un fichier CSV"), type=["csv"], key="lin_csv")
         if uploaded_file:
             try:
                 df = pd.read_csv(uploaded_file)
@@ -294,13 +293,12 @@ def linearity_module():
             x = np.array([])
             y = np.array([])
 
-    # Option 2: manual comma-separated input (the requirement)
+    # Manual comma-separated input
     with col_manual:
         st.subheader("Saisie manuelle (virgules)")
-        conc_text = st.text_area("Concentrations (séparées par des virgules)", value="")
-        sig_text = st.text_area("Signaux (séparés par des virgules)", value="")
+        conc_text = st.text_area("Concentrations (séparées par des virgules)", value="", key="lin_conc_text")
+        sig_text = st.text_area("Signaux (séparés par des virgules)", value="", key="lin_sig_text")
         unit = st.selectbox(t("Unités concentration"), CONCENTRATION_UNITS, key="lin_unit")
-        # parse on comma
         conc_list = []
         sig_list = []
         if conc_text.strip() and sig_text.strip():
@@ -309,21 +307,19 @@ def linearity_module():
                 sig_list = [float(s.strip()) for s in re.split(r'[,;]+', sig_text.strip()) if s.strip() != ""]
             except Exception as e:
                 st.error(f"Erreur parsing: {e}")
-        # prefer manual if provided
         if len(conc_list) >= 2 and len(sig_list) == len(conc_list):
             x = np.array(conc_list, dtype=float)
             y = np.array(sig_list, dtype=float)
 
-    # If we have valid x,y compute regression
+    # regression if valid
     if x.size >= 2 and y.size >= 2 and x.size == y.size:
         try:
             coeffs = np.polyfit(x, y, 1)
             slope, intercept = float(coeffs[0]), float(coeffs[1])
-            # r2
             r = np.corrcoef(x, y)[0, 1]
             r2 = r ** 2
             slope_export = slope
-            # plot (matplotlib as present)
+            # plot (matplotlib)
             fig, ax = plt.subplots()
             ax.scatter(x, y, label=t("Points"))
             xs = np.linspace(min(x), max(x), 100)
@@ -334,7 +330,7 @@ def linearity_module():
             st.pyplot(fig)
             st.markdown(f"**y = {slope:.6f} x + {intercept:.6f}**")
             st.markdown(f"**R² = {r2:.6f}**")
-            # Unknown calculations
+            # unknown computations
             unknown_signal = st.number_input(t("Entrer signal inconnu"), value=0.0, key="lin_unknown_signal")
             if unknown_signal and slope != 0:
                 conc_unknown = (unknown_signal - intercept) / slope
@@ -343,7 +339,7 @@ def linearity_module():
             if unknown_conc:
                 signal_pred = slope * unknown_conc + intercept
                 st.markdown(f"**Signal estimé :** {signal_pred:.6f}")
-            # export slope to session_state for S/N usage
+            # export slope
             st.session_state["slope"] = slope
             st.markdown(f"Slope exported to S/N module: **{slope:.6f}** ({unit})")
         except np.linalg.LinAlgError:
@@ -359,31 +355,39 @@ def linearity_module():
     return st.session_state.get("slope", None)
 
 # ===============================
-# S/N MODULE (auto image + manuel H/h + LOD/LOQ with units)
+# S/N MODULE (auto image + manual H/h in expander + LOD/LOQ expander)
 # ===============================
 def sn_module():
     st.title(t("Calcul du rapport Signal / Bruit (S/N)"))
-    uploaded_file = st.file_uploader(t("Importer une image ou un PDF du chromatogramme"), type=["png", "jpg", "jpeg", "pdf"])
+    uploaded_file = st.file_uploader(t("Importer une image ou un PDF du chromatogramme"), type=["png", "jpg", "jpeg", "pdf"], key="sn_file")
     unit = st.selectbox(t("Unités concentration"), CONCENTRATION_UNITS, key="sn_unit")
-    # small expander for formulas
+
+    # formulas expander (unchanged)
     with st.expander(t("Afficher les formules")):
         st.text(t("Formules SN"))
         st.text(t("Formules LOD LOQ"))
 
-    # manual H/h input for classical/manual S/N
-    st.subheader("Calcul manuel S/N (H, h)")
-    H = st.number_input("H (hauteur du pic)", value=0.0, step=0.1, format="%.6f")
-    h = st.number_input("h (bruit ou écart-type)", value=0.0, step=0.0001, format="%.6f")
-    if st.button("Calculer S/N manuel"):
-        if h == 0:
-            st.error("h doit être non nul")
-        else:
-            sn_classic_manual = H / h
-            sn_usp_manual = (2 * H) / h
-            st.markdown(f"**S/N Classique (manuel) :** {sn_classic_manual:.4f}")
-            st.markdown(f"**S/N USP (manuel) :** {sn_usp_manual:.4f}")
+    # MANUAL S/N expander (user requested: show only when user clicks)
+    if st.button("Calcul manuel du S/N"):
+        st.session_state.setdefault("show_manual_sn", True)
+    if st.session_state.get("show_manual_sn"):
+        with st.expander("Calcul manuel S/N (H, h)", expanded=True):
+            H = st.number_input("H (hauteur du pic)", value=0.0, step=0.1, format="%.6f", key="manual_H")
+            h = st.number_input("h (bruit, écart-type)", value=0.0, step=0.0001, format="%.6f", key="manual_h")
+            # automatic calculation (no extra button)
+            if h == 0:
+                st.warning("h doit être non nul pour calcul manuel")
+            else:
+                sn_classic_manual = H / h
+                sn_usp_manual = (2 * H) / h
+                st.markdown(f"**S/N Classique (manuel)** : {sn_classic_manual:.4f}")
+                st.markdown(f"**S/N USP (manuel)** : {sn_usp_manual:.4f}")
+            # store manual h for LOD/LOQ calculations
+            st.session_state["manual_h"] = h if h > 0 else None
+            st.session_state["manual_H"] = H if H > 0 else None
 
-    # image-based calculations
+    # IMAGE-BASED computations
+    last_result = None
     if uploaded_file:
         if uploaded_file.type == "application/pdf":
             img, err = pdf_to_png_bytes(uploaded_file)
@@ -397,11 +401,11 @@ def sn_module():
         max_x = img.width
         col1, col2, col3 = st.columns(3)
         with col1:
-            zone = st.slider("Zone d'analyse (pixels)", 0, max_x, (0, max_x))
+            zone = st.slider("Zone d'analyse (pixels)", 0, max_x, (0, max_x), key="zone_slider")
         with col2:
-            sensitivity = st.slider("Sensibilité", 0.1, 5.0, 1.0)
+            sensitivity = st.slider("Sensibilité", 0.1, 5.0, 1.0, key="sn_sensitivity")
         with col3:
-            slope_manual = st.number_input(t("Saisir pente manuellement si non disponible"), min_value=0.0, value=0.0, key="slope_manual_input")
+            slope_manual_input = st.number_input(t("Saisir pente manuellement si non disponible"), min_value=0.0, value=0.0, key="slope_manual_input")
 
         res, err = analyze_sn_from_image(img, start=zone[0], end=zone[1])
         if err:
@@ -414,26 +418,79 @@ def sn_module():
             peak_height = res["peak_height"]
             peak_pixel = res["peak_retention_pixel"]
 
-            st.markdown(f"**S/N Classique (image) :** {sn_classic:.4f}")
-            st.markdown(f"**S/N USP (image) :** {sn_usp:.4f}")
-            st.markdown(f"**Temps de rétention (pixel) :** {peak_pixel:.0f}")
+            st.markdown(f"**S/N Classique (image)** : {sn_classic:.4f}")
+            st.markdown(f"**S/N USP (image)** : {sn_usp:.4f}")
+            st.markdown(f"**Temps de rétention (pixel)** : {peak_pixel:.0f}")
 
-            # compute LOD/LOQ in signal
-            lod_signal, loq_signal, lod_conc, loq_conc = compute_lod_loq_from_noise(noise, slope=None)
-            # choose slope: exported slope or manual input
-            slope_exported = st.session_state.get("slope", None)
-            slope_use = slope_manual if slope_manual > 0 else slope_exported
-            if slope_use:
-                # recompute with slope
-                _, _, lod_conc, loq_conc = compute_lod_loq_from_noise(noise, slope=slope_use)
+            # save last image result in session for LOD/LOQ fallback
+            st.session_state["last_sn_result"] = res
+            last_result = res
 
-            st.markdown(f"**{t('LOD')} (signal) :** {lod_signal:.6f}")
-            st.markdown(f"**{t('LOQ')} (signal) :** {loq_signal:.6f}")
-            if lod_conc is not None:
-                st.markdown(f"**{t('LOD')} (concentration) :** {lod_conc:.6f} {unit}")
-                st.markdown(f"**{t('LOQ')} (concentration) :** {loq_conc:.6f} {unit}")
+    # LOD/LOQ expander - shown only if user clicks button
+    if st.button("Afficher LOD/LOQ"):
+        st.session_state.setdefault("show_lod", True)
+    if st.session_state.get("show_lod"):
+        with st.expander("LOD / LOQ", expanded=True):
+            # determine h to use: manual h (if provided) else image noise (if available)
+            manual_h = st.session_state.get("manual_h", None)
+            image_noise = None
+            last = st.session_state.get("last_sn_result", None)
+            if last:
+                image_noise = last.get("noise", None)
+            chosen_h = None
+
+            st.write("Choix du 'h' (bruit) utilisé pour LOD/LOQ :")
+            h_choice = st.radio("Utiliser", options=["h manuel (si fourni)", "bruit image (si disponible)"], index=0)
+            if h_choice == "h manuel (si fourni)":
+                if manual_h:
+                    chosen_h = manual_h
+                    st.write(f"Utilisation h manuel = {chosen_h:.6f}")
+                else:
+                    # allow immediate manual entry if none provided earlier
+                    h_input_now = st.number_input("Saisir h manuellement", value=0.0, format="%.6f", key="lod_h_input")
+                    if h_input_now > 0:
+                        chosen_h = h_input_now
+                        st.write(f"Utilisation h saisi = {chosen_h:.6f}")
+                    else:
+                        st.warning("Aucun h manuel disponible — saisis h ou choisis bruit image.")
             else:
-                st.info("Pente non disponible — saisissez la pente manuellement pour obtenir LOD/LOQ en concentration.")
+                if image_noise:
+                    chosen_h = image_noise
+                    st.write(f"Utilisation bruit image = {chosen_h:.6f}")
+                else:
+                    st.warning("Aucun bruit d'image disponible. Fournis h manuel.")
+
+            # slope choice: session slope or manual
+            slope_session = st.session_state.get("slope", None)
+            st.write("Pente pour conversion signal → concentration :")
+            slope_choice_radio = st.radio("Pente à utiliser", options=["Pente exportée (si disponible)", "Saisir pente manuellement"], index=0)
+            slope_to_use = None
+            if slope_choice_radio == "Pente exportée (si disponible)":
+                if slope_session:
+                    slope_to_use = slope_session
+                    st.write(f"Pente exportée utilisée = {slope_to_use:.6f}")
+                else:
+                    st.warning("Aucune pente exportée disponible. Saisis la pente manuellement ci-dessous.")
+                    slope_manual_now = st.number_input("Saisir pente", value=0.0, key="lod_slope_manual")
+                    if slope_manual_now > 0:
+                        slope_to_use = slope_manual_now
+            else:
+                slope_manual_now = st.number_input("Saisir pente", value=0.0, key="lod_slope_manual2")
+                if slope_manual_now > 0:
+                    slope_to_use = slope_manual_now
+
+            # final compute if h provided
+            if chosen_h and chosen_h > 0:
+                lod_signal, loq_signal, lod_conc, loq_conc = compute_lod_loq_from_h(chosen_h, slope=slope_to_use)
+                st.markdown(f"**LOD (signal)** : {lod_signal:.6f}")
+                st.markdown(f"**LOQ (signal)** : {loq_signal:.6f}")
+                if lod_conc is not None:
+                    st.markdown(f"**LOD (concentration)** : {lod_conc:.6f} {unit}")
+                    st.markdown(f"**LOQ (concentration)** : {loq_conc:.6f} {unit}")
+                else:
+                    st.info("Pente non disponible — saisissez la pente pour obtenir LOD/LOQ en concentration.")
+            else:
+                st.info("Aucun h disponible pour calculer LOD/LOQ (fournis h manuel ou fais une analyse d'image).")
 
 # ===============================
 # FEEDBACK (no email needed)
@@ -450,17 +507,21 @@ def feedback_module():
 # ===============================
 # APPLICATION PRINCIPALE
 # ===============================
-# language selectbox (safe: t uses LANG default "FR")
+CONCENTRATION_UNITS = ["mg/mL", "µg/mL", "ng/mL", "ppm", "mol/L"]
+
+# language selectbox
 LANG = st.selectbox(t("Language / Langue"), ["FR", "EN"], index=0)
 
 def main_app():
-    # secure init of session keys
+    # init session keys
     if "user" not in st.session_state: st.session_state["user"] = None
     if "role" not in st.session_state: st.session_state["role"] = None
     if "access" not in st.session_state: st.session_state["access"] = []
     if "slope" not in st.session_state: st.session_state["slope"] = None
+    if "manual_h" not in st.session_state: st.session_state["manual_h"] = None
+    if "last_sn_result" not in st.session_state: st.session_state["last_sn_result"] = None
 
-    # show change-password for logged users in a small place
+    # change password expander small (available for logged users)
     if st.session_state["user"]:
         with st.expander("🔑 " + t("Changer mot de passe"), expanded=False):
             change_password_panel()
@@ -497,5 +558,5 @@ def run():
     st.set_page_config(page_title="LabT", layout="wide")
     main_app()
 
-if __name__ == "__main__":
+if __name__=="__main__":
     run()
