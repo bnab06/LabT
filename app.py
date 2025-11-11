@@ -31,7 +31,12 @@ TRANSLATIONS = {
         "S/N Classique": "S/N Classique",
         "S/N USP": "S/N USP",
         "Importer un fichier CSV": "Importer un fichier CSV",
-        "Message ou commentaire": "Message ou commentaire"
+        "Message ou commentaire": "Message ou commentaire",
+        "Entrer signal inconnu": "Entrer signal inconnu",
+        "Entrer concentration inconnue": "Entrer concentration inconnue",
+        "LOD": "LOD",
+        "LOQ": "LOQ",
+        "Saisir pente manuellement si non disponible": "Saisir pente manuellement si non disponible"
     },
     "EN": {
         "Language / Langue": "Language",
@@ -49,7 +54,12 @@ TRANSLATIONS = {
         "S/N Classique": "Classic S/N",
         "S/N USP": "USP S/N",
         "Importer un fichier CSV": "Upload CSV file",
-        "Message ou commentaire": "Message or comment"
+        "Message ou commentaire": "Message or comment",
+        "Entrer signal inconnu": "Enter unknown signal",
+        "Entrer concentration inconnue": "Enter unknown concentration",
+        "LOD": "LOD",
+        "LOQ": "LOQ",
+        "Saisir pente manuellement si non disponible": "Enter slope manually if not available"
     }
 }
 
@@ -119,7 +129,6 @@ def admin_panel():
     elif action == "Modifier privilèges":
         user_to_edit = st.selectbox("Utilisateur", [u for u in users if users[u]["role"] != "admin"])
         if user_to_edit:
-            # ✅ Correction KeyError ici
             new_priv = st.multiselect("Modules", ["linearity", "sn"], default=users[user_to_edit].get("access", []))
             if st.button("Sauvegarder"):
                 users[user_to_edit]["access"]=new_priv
@@ -156,9 +165,9 @@ def pdf_to_png_bytes(uploaded_file):
         return img,None
 
 # ===============================
-# S/N MODULE AVEC SLIDERS & CALCUL MANUEL
+# S/N MODULE AVEC SLIDERS, CALCUL MANUEL, FORMULES & LOD/LOQ
 # ===============================
-def analyze_sn_manual(image, zone_start, zone_end, sensitivity):
+def analyze_sn_manual(image, zone_start, zone_end, sensitivity, slope_for_lod=None):
     gray = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
     profile = np.mean(gray, axis=0)
     x = np.arange(len(profile))
@@ -173,7 +182,14 @@ def analyze_sn_manual(image, zone_start, zone_end, sensitivity):
     sn_classic *= sensitivity
     sn_usp = sn_classic/np.sqrt(2)
     retention_time = x_zone[peak_idx]
-    return {"S/N Classique":sn_classic,"S/N USP":sn_usp,"Peak Retention":retention_time}
+
+    # Calcul LOD et LOQ
+    LOD, LOQ = None, None
+    if slope_for_lod:
+        LOD = 3.3*noise/slope_for_lod
+        LOQ = 10*noise/slope_for_lod
+
+    return {"S/N Classique":sn_classic,"S/N USP":sn_usp,"Peak Retention":retention_time,"LOD":LOD,"LOQ":LOQ}
 
 def sn_module():
     st.title("📈 Calcul du rapport Signal / Bruit (S/N)")
@@ -187,37 +203,61 @@ def sn_module():
         max_x = img.width
         zone = st.slider("Zone d'analyse",0,max_x,(0,max_x))
         sensitivity = st.slider("Sensibilité",0.1,5.0,1.0)
-        res = analyze_sn_manual(img, zone[0], zone[1], sensitivity)
+        slope = st.number_input(t("Saisir pente manuellement si non disponible"),min_value=0.0,value=0.0)
+        slope_use = slope if slope>0 else None
+        res = analyze_sn_manual(img, zone[0], zone[1], sensitivity, slope_use)
         st.markdown(f"**S/N Classique :** {res['S/N Classique']:.4f}")
         st.markdown(f"**S/N USP :** {res['S/N USP']:.4f}")
         st.markdown(f"**Temps de rétention :** {res['Peak Retention']:.0f}")
+        if res['LOD']: st.markdown(f"**LOD :** {res['LOD']:.4f}")
+        if res['LOQ']: st.markdown(f"**LOQ :** {res['LOQ']:.4f}")
 
 # ===============================
-# LINÉARITÉ MODULE AVEC GRAPHIQUE & CONCENTRATION INCONNUE
+# LINÉARITÉ MODULE COMPLET
 # ===============================
 def linearity_module():
     st.title("📊 Analyse de linéarité")
     uploaded_file = st.file_uploader(t("Importer un fichier CSV"), type=["csv"])
-    if not uploaded_file: st.info("Veuillez importer un fichier CSV contenant vos données de calibration."); return
-    df = pd.read_csv(uploaded_file)
-    st.dataframe(df)
-    if "Concentration" in df.columns and "Réponse" in df.columns:
-        x,y = df["Concentration"],df["Réponse"]
+    user_slope = None
+    concentrations = []
+    signals = []
+    slope_export = None
+
+    # Saisie manuelle
+    st.markdown("### Saisie manuelle des points (Concentration, Signal)")
+    n_points = st.number_input("Nombre de points à saisir", min_value=2, value=3, step=1)
+    for i in range(int(n_points)):
+        c = st.number_input(f"Concentration {i+1}", value=0.0)
+        s = st.number_input(f"Signal {i+1}", value=0.0)
+        concentrations.append(c)
+        signals.append(s)
+
+    x = np.array(concentrations)
+    y = np.array(signals)
+
+    if len(x)>=2:
         coeffs = np.polyfit(x,y,1)
-        slope,intercept = coeffs
+        slope, intercept = coeffs
+        slope_export = slope
         r = np.corrcoef(x,y)[0,1]
         st.markdown(f"**y = {slope:.4f}x + {intercept:.4f}**")
         st.markdown(f"**R² = {r**2:.4f}**")
         plt.figure(figsize=(6,4))
         plt.scatter(x,y,label="Données")
         plt.plot(x,slope*x+intercept,color="red",label="Régression")
-        plt.xlabel("Concentration"); plt.ylabel("Réponse"); plt.legend(); plt.grid(True)
+        plt.xlabel("Concentration"); plt.ylabel("Signal"); plt.legend(); plt.grid(True)
         st.pyplot(plt)
-        unknown_signal = st.number_input("Entrer signal inconnu",value=0.0)
+
+        unknown_signal = st.number_input(t("Entrer signal inconnu"), value=0.0)
         if unknown_signal>0:
             conc_unknown = (unknown_signal-intercept)/slope
             st.markdown(f"**Concentration estimée :** {conc_unknown:.4f}")
-    else: st.error("Le fichier doit contenir les colonnes 'Concentration' et 'Réponse'.")
+        unknown_conc = st.number_input(t("Entrer concentration inconnue"), value=0.0)
+        if unknown_conc>0:
+            signal_pred = slope*unknown_conc+intercept
+            st.markdown(f"**Signal estimé :** {signal_pred:.4f}")
+
+    return slope_export
 
 # ===============================
 # FEEDBACK SIMPLE
@@ -250,12 +290,13 @@ def main_app():
 
     st.title(f"👋 {user}")
     module = st.selectbox("Module", ["Accueil","Linéarité","S/N","Feedback","Admin","Déconnexion"])
+    slope_lin = None
 
     if module=="Accueil":
         st.title(t("Bienvenue dans LabT"))
         st.info(t("Choisissez un module ci-dessus."))
     elif module=="Linéarité" and "linearity" in access:
-        linearity_module()
+        slope_lin = linearity_module()
     elif module=="S/N" and "sn" in access:
         sn_module()
     elif module=="Feedback":
