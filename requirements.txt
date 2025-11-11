@@ -1,26 +1,17 @@
-# Core
-streamlit>=1.39.0
-pandas>=2.2.2
-numpy>=1.26.4
-matplotlib>=3.9.2
-plotly>=5.24.1
-Pillow>=10.3.0
-
-# OCR / Image
-pytesseract>=0.3.10
-opencv-python-headless>=4.10.0.84
-scikit-image>=0.24.0
-
-# PDF handling
-pdf2image>=1.17.0
-PyMuPDF>=1.24.8
-
-# Utils
-requests>=2.32.3
-fpdf2>=2.7.8
-
-# Email / SMTP
-secure-smtplib>=0.1.1
-
-# JSON / Files
-python-dotenv>=1.0.1
+streamlit==1.51.0
+pandas==2.3.3
+numpy==2.3.4
+matplotlib==3.10.7
+plotly==6.4.0
+scipy==1.16.3
+pdf2image==1.17.0
+pytesseract==0.3.13
+opencv-python-headless==4.11.0.86
+pillow==12.0.0
+fpdf2==2.8.5
+python-dotenv==1.2.1
+requests==2.32.3
+secure-smtplib==0.1.1
+gitpython==3.1.45
+scikit-image==0.25.2
+pymupdf==1.26.6
