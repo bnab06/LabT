@@ -138,7 +138,10 @@ def login_page():
             for key in ["slope_lin", "lin_fig", "sn_result", "sn_img_annot", "lod_s", "lod_c", "loq_s", "loq_c", "sn_manual"]:
                 if key not in st.session_state:
                     st.session_state[key] = None
-            st.rerun()  # ✅ Correction ciblée ici
+
+            # ✅ Correction ciblée
+            st.rerun()
+
         else:
             st.error(texts["login_error"])
 
@@ -164,9 +167,26 @@ def login_page():
     )
 
 # ===============================
-# Les autres modules (change_password, linearity_module, sn_module, topbar, main_app, generate_pdf_report_full)  
-# sont **identiques à ceux du code précédent**, sans aucune modification de calcul ni logique
-# et utilisent st.session_state.lang pour gérer le bilingue et l’inclusion PDF.
+# Déconnexion
+# ===============================
+def logout():
+    if "logged_in" in st.session_state:
+        del st.session_state["logged_in"]
+    if "user" in st.session_state:
+        del st.session_state["user"]
+    if "access" in st.session_state:
+        del st.session_state["access"]
+
+    st.success("Vous avez été déconnecté.")
+    st.rerun()  # ✅ Correction ciblée
+
+# ===============================
+# Main App minimal pour éviter NameError
+# ===============================
+def main_app():
+    st.title("🏠 Tableau de bord principal")
+    st.write(f"Connecté en tant que : {st.session_state.user}")
+    st.info("Ici, vous pouvez intégrer vos modules Linéarité, S/N, etc.")
 
 # ===============================
 # Lancement
