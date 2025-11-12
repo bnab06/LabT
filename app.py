@@ -138,7 +138,7 @@ def login_page():
             for key in ["slope_lin", "lin_fig", "sn_result", "sn_img_annot", "lod_s", "lod_c", "loq_s", "loq_c", "sn_manual"]:
                 if key not in st.session_state:
                     st.session_state[key] = None
-            st.experimental_rerun()
+            st.rerun()  # ✅ Correction ciblée ici
         else:
             st.error(texts["login_error"])
 
