@@ -15,3 +15,4 @@ secure-smtplib==0.1.1
 gitpython==3.1.45
 scikit-image==0.25.2
 pymupdf==1.26.6
+scikit-learn
