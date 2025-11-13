@@ -14,7 +14,8 @@ from fpdf import FPDF
 # ===============================
 # Initialisation session
 # ===============================
-for key in ["logged_in","user","access","lin_slope","lin_intercept","sn_result","sn_img_annot","lang","show_pass_change"]:
+for key in ["logged_in","user","access","lin_slope","lin_intercept",
+            "sn_result","sn_img_annot","lang","show_pass_change"]:
     if key not in st.session_state:
         st.session_state[key] = False if key=="logged_in" else None if "lin" in key or "sn" in key else "" if key=="user" else [] if key=="access" else "FR" if key=="lang" else False
 
@@ -251,21 +252,39 @@ def main_app():
     texts = TEXTS[st.session_state.lang]
     if "admin" in st.session_state.access:
         st.subheader("Admin - Gestion utilisateurs")
-        user_to_add = st.text_input("Nouvel utilisateur")
-        pass_to_add = st.text_input("Mot de passe", type="password")
-        add_btn = st.button("Ajouter utilisateur")
-        if add_btn and user_to_add and pass_to_add:
-            users[user_to_add] = {"password": pass_to_add, "access":[]}
+        # Liste déroulante pour sélectionner un utilisateur
+        user_list = list(users.keys())
+        selected_user = st.selectbox("Sélectionner un utilisateur", user_list)
+        st.write(f"Accès actuel : {users[selected_user].get('access',[])}")
+        
+        # Ajouter nouvel utilisateur
+        new_user = st.text_input("Nouvel utilisateur")
+        new_pass = st.text_input("Mot de passe", type="password")
+        if st.button("Ajouter utilisateur") and new_user and new_pass:
+            users[new_user] = {"password": new_pass, "access": []}
             save_users(users)
-            st.success("Utilisateur ajouté")
-        for u in users:
-            st.write(f"{u} - accès: {users[u].get('access',[])}")
-            if u!="admin":
-                if st.button(f"Supprimer {u}"):
-                    del users[u]
-                    save_users(users)
-                    st.experimental_rerun()
+            st.success(f"Utilisateur {new_user} ajouté.")
+            st.experimental_rerun()
+        
+        # Modifier privilèges
+        all_privs = ["linearity","sn"]
+        current_privs = users[selected_user].get("access",[])
+        new_privs = st.multiselect("Modifier les privilèges", options=all_privs, default=current_privs)
+        if st.button("Mettre à jour privilèges"):
+            users[selected_user]["access"] = new_privs
+            save_users(users)
+            st.success(f"Privilèges de {selected_user} mis à jour.")
+            st.experimental_rerun()
+        
+        # Supprimer utilisateur
+        if selected_user != "admin":
+            if st.button(f"Supprimer {selected_user}"):
+                del users[selected_user]
+                save_users(users)
+                st.success(f"Utilisateur {selected_user} supprimé.")
+                st.experimental_rerun()
     else:
+        # Utilisateur normal
         change_password()
         linearity_module()
         sn_module()
