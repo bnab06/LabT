@@ -378,6 +378,8 @@ def sn_module():
                         st.write(f"LOD signal = {lod_s:.6g} ; LOQ signal = {loq_s:.6g}")
                     if lod_c is not None:
                         st.write(f"LOD concentration = {lod_c:.6g} {unit} ; LOQ concentration = {loq_c:.6g} {unit}")
+        except Exception as e:
+            st.error(f"Erreur lors du traitement de l'image: {e}")
 
     # --- Manual S/N button-driven ---
     st.markdown("---")
