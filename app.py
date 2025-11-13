@@ -13,12 +13,30 @@ from sklearn.linear_model import LinearRegression
 from fpdf import FPDF
 
 # -----------------------
-# Initialisation session
+# Initialization
 # -----------------------
-init_keys = {
+DEFAULT_USERS_FILE = "users.json"
+if not os.path.exists(DEFAULT_USERS_FILE):
+    # create if missing to avoid crashes (but we use your provided file)
+    with open(DEFAULT_USERS_FILE, "w") as f:
+        json.dump({
+            "admin": {"password": "admin", "role": "admin"},
+            "user": {"password": "user", "role": "user"}
+        }, f, indent=2)
+
+with open(DEFAULT_USERS_FILE, "r") as f:
+    users = json.load(f)
+
+def save_users(u):
+    with open(DEFAULT_USERS_FILE, "w") as f:
+        json.dump(u, f, indent=2)
+
+# session defaults
+defaults = {
     "logged_in": False,
     "user": "",
-    "access": [],
+    "role": None,
+    "access": None,
     "lin_slope": None,
     "lin_intercept": None,
     "sn_result": {},
@@ -26,12 +44,12 @@ init_keys = {
     "lang": "FR",
     "show_pass_change": False
 }
-for k, v in init_keys.items():
+for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
 # -----------------------
-# Textes bilingues
+# Texts bilingual
 # -----------------------
 TEXTS = {
     "FR": {
@@ -55,7 +73,8 @@ TEXTS = {
         "manual_lin_btn": "Calculer Linéarité",
         "manual_sn_btn": "Calculer S/N manuel",
         "unit_label": "Unité de concentration",
-        "enter_slope_manual": "Saisir pente manuelle (optionnel)"
+        "enter_slope_manual": "Saisir pente manuelle (optionnel)",
+        "logout": "Déconnexion / Logout"
     },
     "EN": {
         "app_title": "🔬 LabT — Login",
@@ -78,32 +97,26 @@ TEXTS = {
         "manual_lin_btn": "Compute Linearity",
         "manual_sn_btn": "Compute manual S/N",
         "unit_label": "Concentration unit",
-        "enter_slope_manual": "Enter manual slope (optional)"
+        "enter_slope_manual": "Enter manual slope (optional)",
+        "logout": "Logout"
     }
 }
 
 # -----------------------
-# Users file
+# Helpers
 # -----------------------
-USER_FILE = "users.json"
-if not os.path.exists(USER_FILE):
-    # default users: admin (only admin role), demo user (linearity+sn)
-    with open(USER_FILE, "w") as f:
-        json.dump({
-            "admin": {"password": "admin", "access": ["admin"]},
-            "user": {"password": "user", "access": ["linearity", "sn"]}
-        }, f, indent=2)
+def user_access_from_record(rec):
+    # derive access list from user record; keep backward compatibility
+    if not isinstance(rec, dict):
+        return []
+    if rec.get("role") == "admin":
+        return ["admin"]
+    # if explicit access field exists, use it
+    if "access" in rec:
+        return rec.get("access", [])
+    # default for role 'user'
+    return ["linearity", "sn"]
 
-with open(USER_FILE, "r") as f:
-    users = json.load(f)
-
-def save_users(u):
-    with open(USER_FILE, "w") as f:
-        json.dump(u, f, indent=2)
-
-# -----------------------
-# Utilities
-# -----------------------
 def calculate_lod_loq_from_noise(slope, noise):
     lod_signal = 3.3 * noise
     loq_signal = 10.0 * noise
@@ -118,22 +131,21 @@ def calculate_lod_loq_from_noise(slope, noise):
 def annotate_peak_on_image(img_pil, x_pixel, y_pixel, text):
     draw = ImageDraw.Draw(img_pil)
     r = 6
-    # draw red circle
     draw.ellipse((x_pixel-r, y_pixel-r, x_pixel+r, y_pixel+r), fill="red")
-    # draw text (simple)
     try:
-        font = ImageFont.load_default()
-        draw.text((x_pixel+8, max(0, y_pixel-12)), text, fill="red", font=font)
-    except:
+        f = ImageFont.load_default()
+        draw.text((x_pixel+8, max(0, y_pixel-12)), text, fill="red", font=f)
+    except Exception:
         draw.text((x_pixel+8, max(0, y_pixel-12)), text, fill="red")
     return img_pil
 
 # -----------------------
-# Authentification
+# Auth (login page)
 # -----------------------
 def login_page():
     texts = TEXTS[st.session_state.lang]
     st.title(texts["app_title"])
+    # language selector
     chosen = st.selectbox("Lang / Language", ["FR", "EN"], index=0 if st.session_state.lang=="FR" else 1)
     st.session_state.lang = chosen
     texts = TEXTS[st.session_state.lang]
@@ -141,93 +153,109 @@ def login_page():
     username = st.text_input(texts["username"])
     password = st.text_input(texts["password"], type="password")
     if st.button(texts["login_btn"]):
-        u = username.lower().strip()
-        if u in users and users[u]["password"] == password:
+        u = username.strip()
+        if u in users and users[u].get("password") == password:
             st.session_state.logged_in = True
             st.session_state.user = u
-            st.session_state.access = users[u].get("access", [])
+            rec = users[u]
+            st.session_state.role = rec.get("role", "user")
+            st.session_state.access = user_access_from_record(rec)
             st.rerun()
         else:
             st.error(texts["login_error"])
+
     st.markdown(f"<div style='text-align:center;color:#6c757d;font-size:12px;margin-top:40px;'>{texts['powered_by']}</div>", unsafe_allow_html=True)
 
 # -----------------------
-# Admin: user management (NO calculations)
+# Admin panel (no calculations)
 # -----------------------
 def admin_panel():
     texts = TEXTS[st.session_state.lang]
     st.subheader(texts["admin_users"])
 
+    # select user dropdown
     user_list = sorted(list(users.keys()))
-    selected_user = st.selectbox(texts["select_user"], user_list)
+    selected_user = st.selectbox(texts["select_user"], user_list, key="admin_selected_user")
 
-    st.write("Accès actuel:", users[selected_user].get("access", []))
+    st.write("Accès actuel:", users[selected_user].get("access", user_access_from_record(users[selected_user])))
 
-    # Admin can change password for selected user (optional)
-    if st.button("Modifier mot de passe sélectionné"):
+    # change password for selected (shows inputs only when clicked)
+    if st.button("Modifier mot de passe sélectionné", key="admin_show_pw"):
+        st.session_state.admin_change_pw_for = selected_user
+    if "admin_change_pw_for" in st.session_state and st.session_state.get("admin_change_pw_for") == selected_user:
         newpw = st.text_input(f"Nouveau mot de passe pour {selected_user}", type="password", key="admin_newpw")
-        if newpw and st.button("Enregistrer mot de passe", key="admin_savepw"):
-            users[selected_user]["password"] = newpw
-            save_users(users)
-            st.success(f"Mot de passe de {selected_user} mis à jour.")
+        if st.button("Enregistrer mot de passe", key="admin_savepw"):
+            if newpw:
+                users[selected_user]["password"] = newpw
+                save_users(users)
+                st.success(f"Mot de passe de {selected_user} mis à jour.")
+                del st.session_state["admin_change_pw_for"]
+            else:
+                st.error("Mot de passe vide.")
 
-    # Add user
+    # add new user
     with st.expander("Ajouter un nouvel utilisateur"):
-        new_user = st.text_input("Nom nouvel utilisateur", key="add_user_name")
-        new_pass = st.text_input("Mot de passe", type="password", key="add_user_pass")
-        if st.button("Ajouter", key="add_user_btn") and new_user and new_pass:
-            if new_user in users:
+        new_user = st.text_input("Nom nouvel utilisateur", key="admin_add_user")
+        new_pass = st.text_input("Mot de passe", type="password", key="admin_add_pass")
+        new_role = st.selectbox("Rôle", ["user", "admin"], index=0, key="admin_add_role")
+        if st.button("Ajouter", key="admin_add_btn"):
+            if not new_user:
+                st.error("Nom utilisateur requis.")
+            elif new_user in users:
                 st.error("Utilisateur existe déjà.")
             else:
-                users[new_user] = {"password": new_pass, "access": []}
+                # create record with role; default access for user = linearity+sn
+                users[new_user] = {"password": new_pass, "role": new_role}
+                if new_role == "user":
+                    users[new_user]["access"] = ["linearity", "sn"]
                 save_users(users)
                 st.success(f"Utilisateur {new_user} ajouté.")
                 st.experimental_rerun()
 
-    # Update privileges (linearity / sn)
+    # modify privileges for selected user (only for non-admin users)
     all_privs = ["linearity", "sn"]
-    current_privs = users[selected_user].get("access", [])
-    new_privs = st.multiselect("Modifier privilèges", options=all_privs, default=current_privs)
-    if st.button("Mettre à jour privilèges"):
+    current_privs = users[selected_user].get("access", user_access_from_record(users[selected_user]))
+    new_privs = st.multiselect("Modifier privilèges (cocher pour donner accès)", options=all_privs, default=current_privs, key="admin_privs")
+    if st.button("Mettre à jour privilèges", key="admin_update_priv"):
         users[selected_user]["access"] = new_privs
         save_users(users)
         st.success(f"Privilèges de {selected_user} mis à jour.")
         st.experimental_rerun()
 
-    # Delete user
+    # delete user (except admin)
     if selected_user != "admin":
-        if st.button(f"Supprimer {selected_user}"):
+        if st.button(f"Supprimer {selected_user}", key="admin_del_user"):
             del users[selected_user]
             save_users(users)
             st.success(f"Utilisateur {selected_user} supprimé.")
             st.experimental_rerun()
 
 # -----------------------
-# Change password for current user (discreet deploy)
+# Change own password (discreet deploy)
 # -----------------------
 def change_password_widget():
     texts = TEXTS[st.session_state.lang]
-    if st.button(texts["change_pass"]):
+    if st.button(texts["change_pass"], key="show_change_pass_btn"):
         st.session_state.show_pass_change = True
     if st.session_state.show_pass_change:
         newpw = st.text_input(texts["new_pass"], type="password", key="user_newpw")
-        if st.button(texts["save_pass"]):
+        if st.button(texts["save_pass"], key="save_user_pw"):
             if newpw:
                 users[st.session_state.user]["password"] = newpw
                 save_users(users)
-                st.success("Mot de passe mis à jour." if st.session_state.lang=="FR" else "Password updated.")
+                st.success("Mot de passe mis à jour." if st.session_state.lang == "FR" else "Password updated.")
                 st.session_state.show_pass_change = False
             else:
                 st.error("Entrer un mot de passe valide.")
 
 # -----------------------
-# Linearity module (CSV or manual concentrations/signals)
+# Linearity module
 # -----------------------
 def linearity_module():
     texts = TEXTS[st.session_state.lang]
     st.subheader(texts["linear_title"])
 
-    mode = st.selectbox("Mode Linéarité", ["CSV", "Saisie manuelle"])
+    mode = st.selectbox("Mode Linéarité", ["CSV", "Saisie manuelle"], key="lin_mode")
     if mode == "CSV":
         uploaded = st.file_uploader("Upload CSV (2 colonnes: concentration, signal)", type=["csv"], key="lin_csv")
         if uploaded is not None:
@@ -244,20 +272,18 @@ def linearity_module():
                     st.session_state.lin_slope = slope
                     st.session_state.lin_intercept = intercept
                     st.success(f"Slope: {slope:.6g}   Intercept: {intercept:.6g}")
-                    # show simple table
                     st.dataframe(pd.DataFrame({"concentration": x.flatten(), "signal": y}))
             except Exception as e:
                 st.error(f"Erreur lecture CSV: {e}")
-
-    else:  # manual
-        conc_input = st.text_input("Concentrations (séparées par des virgules)")
-        sig_input = st.text_input("Signal (séparés par des virgules)")
-        if st.button(TEXTS[st.session_state.lang]["manual_lin_btn"]):
+    else:
+        conc_input = st.text_input("Concentrations (séparées par des virgules)", key="lin_manual_conc")
+        sig_input = st.text_input("Signal (séparés par des virgules)", key="lin_manual_sig")
+        if st.button(TEXTS[st.session_state.lang]["manual_lin_btn"], key="lin_manual_btn"):
             try:
                 concs = [float(v.strip()) for v in conc_input.split(",") if v.strip() != ""]
                 sigs = [float(v.strip()) for v in sig_input.split(",") if v.strip() != ""]
                 if len(concs) != len(sigs) or len(concs) < 2:
-                    st.error("Nombres invalides : mêmes longueurs requises et au moins 2 points.")
+                    st.error("Nombres invalides : mêmes longueurs et au moins 2 points.")
                 else:
                     x = np.array(concs).reshape(-1, 1)
                     y = np.array(sigs)
@@ -272,18 +298,15 @@ def linearity_module():
                 st.error("Erreur dans la saisie manuelle.")
 
 # -----------------------
-# S/N module: image analysis + manual S/N
+# S/N module (image-based and manual)
 # -----------------------
 def sn_module():
     texts = TEXTS[st.session_state.lang]
     st.subheader(texts["sn_title"])
 
     unit = st.selectbox(TEXTS[st.session_state.lang]["unit_label"], ["µg/mL", "mg/mL", "ng/mL"], index=0)
+    manual_slope = st.text_input(TEXTS[st.session_state.lang]["enter_slope_manual"], placeholder="laisser vide si non", key="sn_manual_slope")
 
-    # Optional manual slope input to use instead of stored linear slope
-    manual_slope = st.text_input(TEXTS[st.session_state.lang]["enter_slope_manual"], placeholder="laisser vide si non", key="manual_slope")
-
-    # --- Image-based S/N ---
     st.markdown("**S/N depuis image**")
     uploaded_img = st.file_uploader("Upload chromatogram image (png/jpg/tif)", type=["png", "jpg", "jpeg", "tif"], key="sn_img")
     if uploaded_img:
@@ -291,15 +314,14 @@ def sn_module():
             img = Image.open(uploaded_img).convert("RGB")
             img_gray = img.convert("L")
             arr = np.array(img_gray)
-            # projection to get chromatographic trace (max over rows)
             trace = arr.max(axis=0).astype(float)
             width = trace.shape[0]
 
             col1, col2 = st.columns(2)
             with col1:
-                start = st.number_input("Start pixel", 0, width - 1, 0, key="start_pixel")
+                start = st.number_input("Start pixel", 0, width - 1, 0, key="sn_start")
             with col2:
-                end = st.number_input("End pixel", 0, width - 1, width - 1, key="end_pixel")
+                end = st.number_input("End pixel", 0, width - 1, width - 1, key="sn_end")
             if start >= end:
                 st.warning("Start doit être < End")
             else:
@@ -308,56 +330,41 @@ def sn_module():
                 if len(peaks) == 0:
                     st.info("Aucun pic détecté dans la zone. Ajuster la zone.")
                 else:
-                    # pick tallest peak in zone
                     idx_rel = peaks[np.argmax(zone[peaks])]
                     idx_global = start + int(idx_rel)
-                    # compute peak height H (use trace value at peak)
                     H = float(zone[int(idx_rel)])
-                    # compute noise: std of zone excluding +-peak_width region
-                    # peak width estimate ~ 3 pixels each side
                     left = max(0, int(idx_rel) - 3)
                     right = min(len(zone) - 1, int(idx_rel) + 3)
                     baseline = np.concatenate([zone[:left], zone[right + 1:]]) if (left > 0 or right < len(zone) - 1) else np.array([])
-                    if baseline.size == 0:
-                        noise = float(np.std(zone))  # fallback
-                    else:
-                        noise = float(np.std(baseline))
+                    noise = float(np.std(baseline)) if baseline.size > 0 else float(np.std(zone))
                     sn_value = H / noise if noise > 0 else None
 
-                    # Determine y_pixel for annotation (get top y coordinate)
-                    col_heights = arr[:, idx_global]
-                    y_pixel = int(np.argmin(col_heights)) if col_heights.size > 0 else 10  # location of darkest? approximate
-
-                    # If user provided time scale, convert pixel to minutes
-                    # We'll give inputs for start_time_min and end_time_min for the entire image width
+                    # optional time scale mapping
                     st.markdown("**Échelle temporelle (optionnel)**")
-                    t0 = st.number_input("Image start time (minutes)", value=0.0, format="%.3f", key="img_t0")
-                    t1 = st.number_input("Image end time (minutes)", value=0.0, format="%.3f", key="img_t1")
+                    t0 = st.number_input("Image start time (minutes)", value=0.0, format="%.6f", key="sn_t0")
+                    t1 = st.number_input("Image end time (minutes)", value=0.0, format="%.6f", key="sn_t1")
                     if (t1 > t0) and (width > 1):
-                        # map idx_global to minutes
                         rt_minutes = t0 + (idx_global / (width - 1)) * (t1 - t0)
                         rt_text = f"{rt_minutes:.3f} min"
                     else:
                         rt_text = f"{idx_global} px"
 
-                    # annotate image
+                    # annotate
                     img_annot = img.copy()
-                    annotate_peak_on_image(img_annot, idx_global, 10, rt_text)  # y position not critical; we place near top
+                    annotate_peak_on_image(img_annot, idx_global, 10, rt_text)
                     st.image(img_annot, caption="Image annotée (pic en rouge)")
                     st.session_state.sn_img_annot = img_annot
 
-                    # slope to use
+                    # slope selection
                     try:
-                        slope_use = float(manual_slope) if manual_slope.strip() != "" else st.session_state.lin_slope
-                        if slope_use is None:
-                            slope_use = None
-                    except:
+                        slope_use = float(manual_slope) if (manual_slope is not None and manual_slope.strip() != "") else st.session_state.lin_slope
+                    except Exception:
                         slope_use = None
 
-                    # compute LOD/LOQ
-                    lod_s, loq_s, lod_c, loq_c = (None, None, None, None)
                     if noise is not None:
                         lod_s, loq_s, lod_c, loq_c = calculate_lod_loq_from_noise(slope_use, noise) if slope_use is not None else (3.3*noise, 10*noise, None, None)
+                    else:
+                        lod_s = loq_s = lod_c = loq_c = None
 
                     st.session_state.sn_result = {
                         "signal": H,
@@ -381,17 +388,16 @@ def sn_module():
         except Exception as e:
             st.error(f"Erreur lors du traitement de l'image: {e}")
 
-    # --- Manual S/N button-driven ---
+    # manual S/N
     st.markdown("---")
     st.subheader("Calcul manuel S/N")
     H_in = st.number_input("Entrer H (hauteur pic)", value=0.0, format="%.6f", key="manual_H")
     h_in = st.number_input("Entrer h (bruit)", value=0.0, format="%.6f", key="manual_h")
-    if st.button(TEXTS[st.session_state.lang]["manual_sn_btn"]):
+    if st.button(TEXTS[st.session_state.lang]["manual_sn_btn"], key="manual_sn_compute"):
         if h_in > 0:
             sn_manual = float(H_in) / float(h_in)
-            # compute LOD/LOQ in signal and concentration if slope exists (or manual slope)
             try:
-                slope_use2 = float(manual_slope) if manual_slope.strip() != "" else st.session_state.lin_slope
+                slope_use2 = float(manual_slope) if (manual_slope is not None and manual_slope.strip() != "") else st.session_state.lin_slope
             except:
                 slope_use2 = None
             lod_s_man = 3.3 * h_in
@@ -406,7 +412,7 @@ def sn_module():
             st.error("h doit être > 0 pour calculer S/N")
 
 # -----------------------
-# PDF generation (include annotated image PNG)
+# PDF generation
 # -----------------------
 def generate_pdf():
     pdf = FPDF()
@@ -414,21 +420,21 @@ def generate_pdf():
     pdf.set_font("Arial", "B", 14)
     pdf.cell(0, 10, "LabT Report", ln=True, align="C")
 
-    # Linearity section
-    pdf.set_font("Arial", "", 12)
+    # linearity
     slope = st.session_state.lin_slope
     intercept = st.session_state.lin_intercept
+    pdf.set_font("Arial", "", 12)
     if slope is not None:
         pdf.cell(0, 8, f"Slope: {slope:.6g}   Intercept: {intercept:.6g}", ln=True)
     else:
         pdf.cell(0, 8, "Slope: N/A", ln=True)
 
-    # S/N results
+    # S/N section
     snr = st.session_state.sn_result
     if snr:
-        pdf.cell(0, 8, f"S/N: {snr.get('sn', 'N/A')}", ln=True)
-        pdf.cell(0, 8, f"Signal H: {snr.get('signal', 'N/A')}", ln=True)
-        pdf.cell(0, 8, f"Noise h: {snr.get('noise', 'N/A')}", ln=True)
+        pdf.cell(0, 8, f"S/N: {snr.get('sn','N/A')}", ln=True)
+        pdf.cell(0, 8, f"Signal H: {snr.get('signal','N/A')}", ln=True)
+        pdf.cell(0, 8, f"Noise h: {snr.get('noise','N/A')}", ln=True)
         if snr.get("lod_s") is not None:
             pdf.cell(0, 8, f"LOD signal: {snr.get('lod_s'):.6g}", ln=True)
             pdf.cell(0, 8, f"LOQ signal: {snr.get('loq_s'):.6g}", ln=True)
@@ -438,7 +444,7 @@ def generate_pdf():
         if snr.get("rt_text"):
             pdf.cell(0, 8, f"Retention: {snr.get('rt_text')}", ln=True)
 
-    # add annotated image
+    # image annotated
     if st.session_state.sn_img_annot is not None:
         buf = io.BytesIO()
         st.session_state.sn_img_annot.save(buf, format="PNG")
@@ -446,7 +452,6 @@ def generate_pdf():
         try:
             pdf.image(buf, x=10, w=180)
         except Exception:
-            # FPDF needs a file-like object with name, fallback: write to temp file
             tmpname = f"tmp_img_{datetime.now().strftime('%s')}.png"
             with open(tmpname, "wb") as f:
                 f.write(buf.getbuffer())
@@ -454,35 +459,42 @@ def generate_pdf():
             os.remove(tmpname)
 
     out = pdf.output(dest="S").encode("latin1")
-    st.download_button("📄 Télécharger le PDF", data=out, file_name=f"LabT_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
+    st.download_button(TEXTS[st.session_state.lang]["download_pdf"], data=out, file_name=f"LabT_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", mime="application/pdf")
 
 # -----------------------
-# Main App (no sidebar)
+# Main app
 # -----------------------
 def main_app():
     texts = TEXTS[st.session_state.lang]
 
-    # Admin ONLY: user management
-    if "admin" in st.session_state.access:
+    # admin only: management interface, no calculations
+    if st.session_state.role == "admin":
         admin_panel()
+        # logout
+        if st.button(texts["logout"]):
+            lang_keep = st.session_state.lang
+            for k in list(st.session_state.keys()):
+                if k not in ["lang"]:
+                    del st.session_state[k]
+            st.session_state.lang = lang_keep
+            st.rerun()
         return
 
-    # Normal users: show change password widget, linearity, sn, pdf
+    # normal user: functions according to access
     change_password_widget()
-    # Linearity access
-    if "linearity" in st.session_state.access:
+
+    if "linearity" in (st.session_state.access or []):
         linearity_module()
-    # S/N access
-    if "sn" in st.session_state.access:
+
+    if "sn" in (st.session_state.access or []):
         sn_module()
 
-    # PDF generation if something available
-    if (st.session_state.sn_result and st.button(texts["download_pdf"])) or (st.session_state.sn_img_annot is not None and st.button(texts["download_pdf"])):
+    # PDF download
+    if st.button(texts["download_pdf"]):
         generate_pdf()
 
-    # logout button at bottom
-    if st.button("Déconnexion / Logout"):
-        # clear only relevant session keys, keep language
+    # logout
+    if st.button(texts["logout"]):
         lang_keep = st.session_state.lang
         for k in list(st.session_state.keys()):
             if k not in ["lang"]:
